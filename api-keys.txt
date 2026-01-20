@@ -1,0 +1,5 @@
+OMDb: http://www.omdbapi.com/?i=tt3896198&apikey=590c5cab
+
+TMDb API Key: 22cde45237cf9c9da1c20f9e1b0625bf
+
+TMDb API Read Access Token: eyJhbGciOiJIUzI1NiJ9.eyJhdWQiOiIyMmNkZTQ1MjM3Y2Y5YzlkYTFjMjBmOWUxYjA2MjViZiIsIm5iZiI6MTc2ODc3MzgwMC4wMjcsInN1YiI6IjY5NmQ1OGE4NWIwMGMxNjUyM2FhYWI3YSIsInNjb3BlcyI6WyJhcGlfcmVhZCJdLCJ2ZXJzaW9uIjoxfQ.LbYNnuTIhYoaaldZe9ZuWu_mUxyOu3m8HvzLiNs_BKc
