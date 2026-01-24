@@ -22,7 +22,7 @@ export const colors = {
 
   // Accent Colors (Bold pops)
   accent: {
-    primary: '#FF375F',      // Netflix red - primary actions, highlights
+    primary: '#46ff33',      // Neon green - primary actions, highlights
     secondary: '#00D9FF',    // Bright cyan - links, secondary actions
     success: '#30D158',      // Apple green - confirmations
     warning: '#FFD60A',      // Amber - alerts

@@ -161,10 +161,7 @@ const BrowseScreen = ({ navigation }) => {
         return;
       }
 
-      const searchResponse = await searchMulti({
-        query: query.trim(),
-        page,
-      });
+      const searchResponse = await searchMulti(query.trim(), page);
 
       if (searchResponse.success && searchResponse.data.results) {
         let results = searchResponse.data.results;
@@ -446,7 +443,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
+    paddingBottom: 100,
   },
   row: {
     marginBottom: spacing.md,

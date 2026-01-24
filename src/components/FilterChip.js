@@ -44,13 +44,19 @@ const styles = StyleSheet.create({
   chipActive: {
     backgroundColor: colors.accent.primary,
     borderColor: colors.accent.primary,
+    // Glow effect
+    shadowColor: colors.accent.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 10,
+    elevation: 8,
   },
   chipText: {
     color: colors.text.secondary,
     fontWeight: '600',
   },
   chipTextActive: {
-    color: colors.text.primary,
+    color: colors.text.inverse,
   },
 });
 
