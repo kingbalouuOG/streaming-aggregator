@@ -3,52 +3,35 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   FlatList,
   ActivityIndicator,
   Pressable,
-  Modal,
+  Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, layout } from '../theme';
 import { getSelectedPlatforms } from '../storage/userPreferences';
 import { discoverMovies, discoverTV } from '../api/tmdb';
 import ContentCard from '../components/ContentCard';
 import FilterChip from '../components/FilterChip';
-
-const FILTERS = {
-  ALL: 'all',
-  MOVIES: 'movies',
-  TV: 'tv',
-  DOCUMENTARIES: 'documentaries',
-};
+import FilterModal from '../components/FilterModal';
 
 const DOCUMENTARY_GENRE_ID = 99;
 
-const GENRES = [
-  { id: 28, name: 'Action' },
-  { id: 12, name: 'Adventure' },
-  { id: 16, name: 'Animation' },
-  { id: 35, name: 'Comedy' },
-  { id: 80, name: 'Crime' },
-  { id: 99, name: 'Documentary' },
-  { id: 18, name: 'Drama' },
-  { id: 10751, name: 'Family' },
-  { id: 14, name: 'Fantasy' },
-  { id: 36, name: 'History' },
-  { id: 27, name: 'Horror' },
-  { id: 10402, name: 'Music' },
-  { id: 9648, name: 'Mystery' },
-  { id: 10749, name: 'Romance' },
-  { id: 878, name: 'Science Fiction' },
-  { id: 53, name: 'Thriller' },
-  { id: 10752, name: 'War' },
-  { id: 37, name: 'Western' },
-];
+// Default filter state
+const DEFAULT_FILTERS = {
+  selectedServices: [],    // Platform IDs (empty = all user platforms)
+  contentType: 'all',      // 'all' | 'movies' | 'tv' | 'documentaries'
+  costFilter: 'all',       // 'all' | 'free' (flatrate) | 'paid' (rent/buy)
+  selectedGenres: [],      // Genre IDs
+  minRating: 0,            // 0-10 (0 = no filter)
+};
 
 const HomeScreen = ({ navigation }) => {
-  const [selectedFilter, setSelectedFilter] = useState(FILTERS.ALL);
+  const insets = useSafeAreaInsets();
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [platforms, setPlatforms] = useState([]);
   const [popularContent, setPopularContent] = useState([]);
   const [recentContent, setRecentContent] = useState([]);
@@ -57,18 +40,17 @@ const HomeScreen = ({ navigation }) => {
   const [dramaContent, setDramaContent] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
-  const [selectedGenres, setSelectedGenres] = useState([]);
 
   useEffect(() => {
     loadContent();
   }, []);
 
   useEffect(() => {
-    // Reload content when main filter changes
+    // Reload content when filters change
     if (platforms.length > 0) {
       loadContent();
     }
-  }, [selectedFilter]);
+  }, [filters]);
 
   // Load user's platforms and fetch content
   const loadContent = async () => {
@@ -104,8 +86,10 @@ const HomeScreen = ({ navigation }) => {
     try {
       const allContent = [];
       const genreParams = getGenreParams();
+      const ratingParams = getRatingParams();
+      const filteredPlatforms = getFilteredPlatforms(platformIds);
 
-      for (const platformId of platformIds) {
+      for (const platformId of filteredPlatforms) {
         // Fetch based on filter
         if (shouldFetchMovies()) {
           const moviesResponse = await discoverMovies({
@@ -114,6 +98,7 @@ const HomeScreen = ({ navigation }) => {
             sort_by: 'popularity.desc',
             page: 1,
             ...genreParams,
+            ...ratingParams,
           });
 
           if (moviesResponse.success && moviesResponse.data.results) {
@@ -134,6 +119,7 @@ const HomeScreen = ({ navigation }) => {
             sort_by: 'popularity.desc',
             page: 1,
             ...genreParams,
+            ...ratingParams,
           });
 
           if (tvResponse.success && tvResponse.data.results) {
@@ -161,8 +147,10 @@ const HomeScreen = ({ navigation }) => {
     try {
       const allContent = [];
       const genreParams = getGenreParams();
+      const ratingParams = getRatingParams();
+      const filteredPlatforms = getFilteredPlatforms(platformIds);
 
-      for (const platformId of platformIds) {
+      for (const platformId of filteredPlatforms) {
         if (shouldFetchMovies()) {
           const moviesResponse = await discoverMovies({
             watch_region: 'GB',
@@ -171,6 +159,7 @@ const HomeScreen = ({ navigation }) => {
             'release_date.lte': new Date().toISOString().split('T')[0],
             page: 1,
             ...genreParams,
+            ...ratingParams,
           });
 
           if (moviesResponse.success && moviesResponse.data.results) {
@@ -192,6 +181,7 @@ const HomeScreen = ({ navigation }) => {
             'first_air_date.lte': new Date().toISOString().split('T')[0],
             page: 1,
             ...genreParams,
+            ...ratingParams,
           });
 
           if (tvResponse.success && tvResponse.data.results) {
@@ -217,20 +207,22 @@ const HomeScreen = ({ navigation }) => {
   const fetchGenreContent = async (platformIds, genreId, setter) => {
     try {
       // If documentaries filter is active and this isn't the documentary genre, skip
-      if (selectedFilter === FILTERS.DOCUMENTARIES && genreId !== DOCUMENTARY_GENRE_ID) {
+      if (filters.contentType === 'documentaries' && genreId !== DOCUMENTARY_GENRE_ID) {
         setter([]);
         return;
       }
 
       const allContent = [];
       const genreParams = getGenreParams();
+      const ratingParams = getRatingParams();
+      const filteredPlatforms = getFilteredPlatforms(platformIds);
 
       // Combine the section genre with any user-selected genres from modal
       const combinedGenres = genreParams.with_genres
         ? `${genreId},${genreParams.with_genres}`
         : genreId.toString();
 
-      for (const platformId of platformIds) {
+      for (const platformId of filteredPlatforms) {
         if (shouldFetchMovies()) {
           const moviesResponse = await discoverMovies({
             watch_region: 'GB',
@@ -238,6 +230,7 @@ const HomeScreen = ({ navigation }) => {
             with_genres: combinedGenres,
             sort_by: 'popularity.desc',
             page: 1,
+            ...ratingParams,
           });
 
           if (moviesResponse.success && moviesResponse.data.results) {
@@ -258,6 +251,7 @@ const HomeScreen = ({ navigation }) => {
             with_genres: combinedGenres,
             sort_by: 'popularity.desc',
             page: 1,
+            ...ratingParams,
           });
 
           if (tvResponse.success && tvResponse.data.results) {
@@ -326,22 +320,30 @@ const HomeScreen = ({ navigation }) => {
   // Filter helpers
   const shouldFetchMovies = () => {
     return (
-      selectedFilter === FILTERS.ALL ||
-      selectedFilter === FILTERS.MOVIES ||
-      selectedFilter === FILTERS.DOCUMENTARIES
+      filters.contentType === 'all' ||
+      filters.contentType === 'movies' ||
+      filters.contentType === 'documentaries'
     );
   };
 
   const shouldFetchTV = () => {
-    return selectedFilter === FILTERS.ALL || selectedFilter === FILTERS.TV;
+    return filters.contentType === 'all' || filters.contentType === 'tv';
   };
 
-  // Get genre filter params based on selected filter and additional genre filters
+  // Get platforms to query (respects service filter)
+  const getFilteredPlatforms = (platformIds) => {
+    if (filters.selectedServices.length > 0) {
+      return filters.selectedServices;
+    }
+    return platformIds;
+  };
+
+  // Get genre filter params based on content type and selected genres
   const getGenreParams = () => {
-    const genres = [...selectedGenres];
+    const genres = [...filters.selectedGenres];
 
     // If documentaries filter is active, add documentary genre
-    if (selectedFilter === FILTERS.DOCUMENTARIES) {
+    if (filters.contentType === 'documentaries') {
       if (!genres.includes(DOCUMENTARY_GENRE_ID)) {
         genres.push(DOCUMENTARY_GENRE_ID);
       }
@@ -350,27 +352,33 @@ const HomeScreen = ({ navigation }) => {
     return genres.length > 0 ? { with_genres: genres.join(',') } : {};
   };
 
-  // Toggle genre selection for filter modal
-  const toggleGenreSelection = (genreId) => {
-    setSelectedGenres((prev) =>
-      prev.includes(genreId)
-        ? prev.filter((id) => id !== genreId)
-        : [...prev, genreId]
-    );
-  };
-
-  // Apply genre filters and close modal
-  const applyGenreFilters = () => {
-    setFilterModalVisible(false);
-    // Reload content with new genre filters
-    if (platforms.length > 0) {
-      loadContent();
+  // Get rating filter params
+  const getRatingParams = () => {
+    if (filters.minRating > 0) {
+      return { 'vote_average.gte': filters.minRating };
     }
+    return {};
   };
 
-  // Clear all genre filters
-  const clearGenreFilters = () => {
-    setSelectedGenres([]);
+  // Apply filters from modal
+  const handleApplyFilters = (newFilters) => {
+    setFilters(newFilters);
+  };
+
+  // Clear all filters
+  const handleClearFilters = () => {
+    setFilters(DEFAULT_FILTERS);
+  };
+
+  // Count active filters for badge
+  const getActiveFilterCount = () => {
+    let count = 0;
+    if (filters.selectedServices.length > 0) count++;
+    if (filters.contentType !== 'all') count++;
+    if (filters.costFilter !== 'all') count++;
+    if (filters.selectedGenres.length > 0) count += filters.selectedGenres.length;
+    if (filters.minRating > 0) count++;
+    return count;
   };
 
   // Handle content card press
@@ -405,67 +413,77 @@ const HomeScreen = ({ navigation }) => {
   // Loading state
   if (isLoading) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <View style={[styles.safeArea, { paddingTop: insets.top }]}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.accent.primary} />
           <Text style={[typography.body, styles.loadingText]}>
             Loading content...
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   // No platforms selected
   if (platforms.length === 0) {
     return (
-      <SafeAreaView style={styles.safeArea}>
+      <View style={[styles.safeArea, { paddingTop: insets.top }]}>
         <View style={styles.emptyContainer}>
           <Text style={[typography.h2, styles.emptyTitle]}>No Platforms Selected</Text>
           <Text style={[typography.body, styles.emptyText]}>
             Please select streaming platforms in your profile
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.safeArea}>
       <View style={styles.container}>
         {/* Header */}
-        <View style={styles.header}>
-          <Text style={[typography.h2, styles.headerTitle]}>StreamFinder</Text>
+        <View style={[styles.header, { paddingTop: insets.top }]}>
+          <Image
+            source={require('../../assets/videx-logo-v1.png')}
+            style={styles.headerLogo}
+            resizeMode="contain"
+          />
         </View>
 
         {/* Filter Chips */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
+          style={styles.filterBarWrapper}
           contentContainerStyle={styles.filterBar}
         >
           <FilterChip
             label="All"
-            active={selectedFilter === FILTERS.ALL}
-            onPress={() => setSelectedFilter(FILTERS.ALL)}
+            active={filters.contentType === 'all'}
+            onPress={() => setFilters((prev) => ({ ...prev, contentType: 'all' }))}
           />
           <FilterChip
             label="Movies"
-            active={selectedFilter === FILTERS.MOVIES}
-            onPress={() => setSelectedFilter(FILTERS.MOVIES)}
+            active={filters.contentType === 'movies'}
+            onPress={() => setFilters((prev) => ({ ...prev, contentType: 'movies' }))}
           />
           <FilterChip
             label="TV"
-            active={selectedFilter === FILTERS.TV}
-            onPress={() => setSelectedFilter(FILTERS.TV)}
+            active={filters.contentType === 'tv'}
+            onPress={() => setFilters((prev) => ({ ...prev, contentType: 'tv' }))}
           />
           <FilterChip
             label="Documentaries"
-            active={selectedFilter === FILTERS.DOCUMENTARIES}
-            onPress={() => setSelectedFilter(FILTERS.DOCUMENTARIES)}
+            active={filters.contentType === 'documentaries'}
+            onPress={() => setFilters((prev) => ({ ...prev, contentType: 'documentaries' }))}
           />
           <Pressable style={styles.filterIconButton} onPress={() => setFilterModalVisible(true)}>
             <Ionicons name="options-outline" size={20} color={colors.text.secondary} />
+            {getActiveFilterCount() > 0 && (
+              <View style={styles.filterBadge}>
+                <Text style={styles.filterBadgeText}>{getActiveFilterCount()}</Text>
+              </View>
+            )}
           </Pressable>
         </ScrollView>
 
@@ -483,61 +501,16 @@ const HomeScreen = ({ navigation }) => {
         </ScrollView>
 
         {/* Filter Modal */}
-        <Modal
+        <FilterModal
           visible={filterModalVisible}
-          animationType="slide"
-          transparent={true}
-          onRequestClose={() => setFilterModalVisible(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.modalContent}>
-              {/* Modal Header */}
-              <View style={styles.modalHeader}>
-                <Text style={[typography.h3, styles.modalTitle]}>Filter by Genre</Text>
-                <Pressable onPress={() => setFilterModalVisible(false)}>
-                  <Ionicons name="close" size={24} color={colors.text.primary} />
-                </Pressable>
-              </View>
-
-              {/* Genre Grid */}
-              <ScrollView style={styles.genreList} showsVerticalScrollIndicator={false}>
-                <View style={styles.genreGrid}>
-                  {GENRES.map((genre) => (
-                    <Pressable
-                      key={genre.id}
-                      style={[
-                        styles.genreChip,
-                        selectedGenres.includes(genre.id) && styles.genreChipSelected,
-                      ]}
-                      onPress={() => toggleGenreSelection(genre.id)}
-                    >
-                      <Text
-                        style={[
-                          styles.genreChipText,
-                          selectedGenres.includes(genre.id) && styles.genreChipTextSelected,
-                        ]}
-                      >
-                        {genre.name}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </ScrollView>
-
-              {/* Action Buttons */}
-              <View style={styles.modalActions}>
-                <Pressable style={styles.clearButton} onPress={clearGenreFilters}>
-                  <Text style={styles.clearButtonText}>Clear All</Text>
-                </Pressable>
-                <Pressable style={styles.applyButton} onPress={applyGenreFilters}>
-                  <Text style={styles.applyButtonText}>Apply Filters</Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
+          onClose={() => setFilterModalVisible(false)}
+          filters={filters}
+          onApply={handleApplyFilters}
+          onClear={handleClearFilters}
+          userPlatforms={platforms}
+        />
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 
@@ -551,17 +524,20 @@ const styles = StyleSheet.create({
   },
   header: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.sm,
     paddingBottom: spacing.xs,
     backgroundColor: colors.background.primary,
   },
-  headerTitle: {
-    color: colors.text.primary,
+  headerLogo: {
+    height: 32,
+    width: 140,
+  },
+  filterBarWrapper: {
+    flexGrow: 0,
+    flexShrink: 0,
   },
   filterBar: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.xs,
+    paddingVertical: spacing.sm,
     alignItems: 'center',
   },
   filterIconButton: {
@@ -574,11 +550,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.glass.border,
   },
+  filterBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -4,
+    backgroundColor: colors.accent.primary,
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+  },
+  filterBadgeText: {
+    color: colors.text.inverse,
+    fontSize: 11,
+    fontWeight: '700',
+  },
   content: {
     flex: 1,
   },
   contentContainer: {
-    paddingTop: spacing.sm,
     paddingBottom: 100,
   },
   section: {
@@ -614,97 +606,6 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.text.secondary,
     textAlign: 'center',
-  },
-  // Modal styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'flex-end',
-  },
-  modalContent: {
-    backgroundColor: colors.background.primary,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: 100,
-    maxHeight: '75%',
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  modalTitle: {
-    color: colors.text.primary,
-  },
-  genreList: {
-    marginBottom: spacing.lg,
-  },
-  genreGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-  },
-  genreChip: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.background.tertiary,
-    borderRadius: layout.borderRadius.pill,
-    borderWidth: 1,
-    borderColor: colors.glass.border,
-    marginBottom: spacing.xs,
-  },
-  genreChipSelected: {
-    backgroundColor: colors.accent.primary,
-    borderColor: colors.accent.primary,
-    // Glow effect
-    shadowColor: colors.accent.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  genreChipText: {
-    color: colors.text.secondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  genreChipTextSelected: {
-    color: colors.text.inverse,
-  },
-  modalActions: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  clearButton: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    borderRadius: layout.borderRadius.medium,
-    backgroundColor: colors.background.tertiary,
-    alignItems: 'center',
-  },
-  clearButtonText: {
-    color: colors.text.secondary,
-    fontWeight: '600',
-  },
-  applyButton: {
-    flex: 2,
-    paddingVertical: spacing.md,
-    borderRadius: layout.borderRadius.medium,
-    backgroundColor: colors.accent.primary,
-    alignItems: 'center',
-    // Glow effect
-    shadowColor: colors.accent.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  applyButtonText: {
-    color: colors.text.inverse,
-    fontWeight: '600',
   },
 });
 
