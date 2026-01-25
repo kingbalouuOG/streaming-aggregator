@@ -81,57 +81,58 @@ const BrowseScreen = ({ navigation }) => {
 
       const allContent = [];
 
-      for (const platformId of platformIds) {
-        // Fetch based on filter
-        if (selectedFilter === FILTERS.ALL || selectedFilter === FILTERS.MOVIES) {
-          const moviesResponse = await discoverMovies({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            sort_by: 'popularity.desc',
-            page,
-          });
+      // Query all platforms at once using | (OR) operator
+      const platformsParam = platformIds.join('|');
 
-          if (moviesResponse.success && moviesResponse.data.results) {
-            allContent.push(
-              ...moviesResponse.data.results.map((item) => ({
-                ...item,
-                type: 'movie',
-                platformId,
-              }))
-            );
-          }
-        }
+      // Fetch based on filter
+      if (selectedFilter === FILTERS.ALL || selectedFilter === FILTERS.MOVIES) {
+        const moviesResponse = await discoverMovies({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'popularity.desc',
+          page,
+        });
 
-        if (selectedFilter === FILTERS.ALL || selectedFilter === FILTERS.TV) {
-          const tvResponse = await discoverTV({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            sort_by: 'popularity.desc',
-            page,
-          });
-
-          if (tvResponse.success && tvResponse.data.results) {
-            allContent.push(
-              ...tvResponse.data.results.map((item) => ({
-                ...item,
-                type: 'tv',
-                platformId,
-              }))
-            );
-          }
+        if (moviesResponse.success && moviesResponse.data.results) {
+          allContent.push(
+            ...moviesResponse.data.results.map((item) => ({
+              ...item,
+              type: 'movie',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
         }
       }
 
-      // Merge and deduplicate
-      const merged = mergeAndDeduplicateContent(allContent, platformIds);
+      if (selectedFilter === FILTERS.ALL || selectedFilter === FILTERS.TV) {
+        const tvResponse = await discoverTV({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'popularity.desc',
+          page,
+        });
+
+        if (tvResponse.success && tvResponse.data.results) {
+          allContent.push(
+            ...tvResponse.data.results.map((item) => ({
+              ...item,
+              type: 'tv',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
+        }
+      }
+
+      // Deduplicate content
+      const deduped = deduplicateContent(allContent);
 
       if (page === 1) {
-        setContent(merged);
+        setContent(deduped);
       } else {
-        setContent((prev) => [...prev, ...merged]);
+        setContent((prev) => [...prev, ...deduped]);
       }
 
-      setHasMorePages(merged.length > 0);
+      setHasMorePages(deduped.length > 0);
     } catch (error) {
       console.error('[BrowseScreen] Error loading content:', error);
     } finally {
@@ -178,14 +179,11 @@ const BrowseScreen = ({ navigation }) => {
           );
         }
 
-        // Add type field and mock platform data (search doesn't include platform info)
+        // Add type field - platforms will be lazy-loaded by ContentCard
         const enrichedResults = results.map((item) => ({
           ...item,
           type: item.media_type,
-          platforms: platformIds.slice(0, 2).map((id) => ({
-            id,
-            name: getPlatformName(id),
-          })),
+          platforms: null, // Will be lazy-loaded by ContentCard
         }));
 
         if (page === 1) {
@@ -246,26 +244,14 @@ const BrowseScreen = ({ navigation }) => {
     loadBrowseContent(1);
   };
 
-  // Merge content from multiple platforms and deduplicate
-  const mergeAndDeduplicateContent = (contentArray, platformIds) => {
+  // Deduplicate content by ID and sort by popularity
+  const deduplicateContent = (contentArray) => {
     const contentMap = new Map();
 
     contentArray.forEach((item) => {
       const key = `${item.type}-${item.id}`;
-
-      if (contentMap.has(key)) {
-        // Item exists, add platform to its list
-        const existing = contentMap.get(key);
-        const platform = platformIds.find((p) => p === item.platformId);
-        if (platform && !existing.platforms.some((p) => p.id === platform)) {
-          existing.platforms.push({ id: platform, name: getPlatformName(platform) });
-        }
-      } else {
-        // New item
-        contentMap.set(key, {
-          ...item,
-          platforms: [{ id: item.platformId, name: getPlatformName(item.platformId) }],
-        });
+      if (!contentMap.has(key)) {
+        contentMap.set(key, item);
       }
     });
 
@@ -273,21 +259,6 @@ const BrowseScreen = ({ navigation }) => {
     return Array.from(contentMap.values()).sort(
       (a, b) => (b.popularity || 0) - (a.popularity || 0)
     );
-  };
-
-  // Get platform name by ID
-  const getPlatformName = (id) => {
-    const platformNames = {
-      8: 'Netflix',
-      9: 'Prime',
-      350: 'Apple TV+',
-      337: 'Disney+',
-      39: 'Now TV',
-      38: 'iPlayer',
-      41: 'ITVX',
-      103: 'C4',
-    };
-    return platformNames[id] || 'Unknown';
   };
 
   // Handle content card press
@@ -326,7 +297,11 @@ const BrowseScreen = ({ navigation }) => {
           !isLeftColumn && { marginLeft: spacing.md },
         ]}
       >
-        <ContentCard item={item} onPress={handleCardPress} />
+        <ContentCard
+          item={item}
+          onPress={handleCardPress}
+          userPlatforms={platforms}
+        />
       </View>
     );
   };

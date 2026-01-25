@@ -1,9 +1,10 @@
 /**
  * ContentCard Component
  * Displays content poster with multi-platform badges and title overlay
+ * Lazy-loads actual platform availability data from TMDb API
  */
 
-import React, { memo } from 'react';
+import React, { memo, useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,11 +13,13 @@ import {
   Pressable,
   Dimensions,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, typography, spacing, layout } from '../theme';
 import GlassContainer from './GlassContainer';
 import ProgressiveImage from './ProgressiveImage';
+import { getContentWatchProviders } from '../api/tmdb';
 
 // Platform logo mapping
 const PLATFORM_LOGOS = {
@@ -29,14 +32,19 @@ const PLATFORM_LOGOS = {
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.4; // 40% of screen width
 
-const ContentCard = ({ item, onPress }) => {
+const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
   const {
     id,
     title,
     name,
     poster_path,
-    platforms = [],
+    type = 'movie', // 'movie' or 'tv'
+    platforms: initialPlatforms = null,
   } = item;
+
+  // State for lazy-loaded platform data
+  const [platforms, setPlatforms] = useState(initialPlatforms);
+  const [isLoadingPlatforms, setIsLoadingPlatforms] = useState(initialPlatforms === null);
 
   const displayTitle = title || name;
   const posterUrl = poster_path
@@ -46,9 +54,64 @@ const ContentCard = ({ item, onPress }) => {
     ? `https://image.tmdb.org/t/p/w92${poster_path}`
     : null;
 
+  // Lazy-load platform data when component mounts
+  useEffect(() => {
+    // Skip if platforms already loaded
+    if (initialPlatforms !== null) {
+      setPlatforms(initialPlatforms);
+      setIsLoadingPlatforms(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const fetchPlatforms = async () => {
+      try {
+        const mediaType = type === 'tv' ? 'tv' : 'movie';
+        const response = await getContentWatchProviders(id, mediaType);
+
+        if (!isMounted) return;
+
+        if (response.success && response.data) {
+          // Get flatrate (subscription) providers and filter to user's platforms
+          const flatrateProviders = response.data.flatrate || [];
+          const userPlatformIds = userPlatforms.map(p => typeof p === 'object' ? p.id : p);
+
+          // Filter to only show platforms the user has selected
+          const matchingPlatforms = flatrateProviders.filter(provider =>
+            userPlatformIds.includes(provider.provider_id)
+          ).map(provider => ({
+            id: provider.provider_id,
+            name: provider.provider_name,
+          }));
+
+          setPlatforms(matchingPlatforms);
+        } else {
+          setPlatforms([]);
+        }
+      } catch (error) {
+        console.error('Error fetching platform data:', error);
+        if (isMounted) {
+          setPlatforms([]);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoadingPlatforms(false);
+        }
+      }
+    };
+
+    fetchPlatforms();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id, type, initialPlatforms, userPlatforms]);
+
   // Platform badge logic: show max 3, then "+N" for additional
-  const visiblePlatforms = platforms.slice(0, 3);
-  const remainingCount = platforms.length > 3 ? platforms.length - 3 : 0;
+  const displayPlatforms = platforms || [];
+  const visiblePlatforms = displayPlatforms.slice(0, 3);
+  const remainingCount = displayPlatforms.length > 3 ? displayPlatforms.length - 3 : 0;
 
   // Animation state
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
@@ -116,7 +179,13 @@ const ContentCard = ({ item, onPress }) => {
         )}
 
         {/* Platform Badges - Top Right */}
-        {platforms.length > 0 && (
+        {isLoadingPlatforms ? (
+          <View style={styles.badgesContainer}>
+            <View style={styles.badge}>
+              <ActivityIndicator size="small" color={colors.text.primary} />
+            </View>
+          </View>
+        ) : displayPlatforms.length > 0 && (
           <View style={styles.badgesContainer}>
             {visiblePlatforms.map((platform, index) => {
               const hasLogo = PLATFORM_LOGOS[platform.id];
@@ -245,9 +314,15 @@ const styles = StyleSheet.create({
 
 // Memoize component to prevent unnecessary re-renders
 export default memo(ContentCard, (prevProps, nextProps) => {
-  return (
+  // Compare core item properties
+  const sameItem =
     prevProps.item.id === nextProps.item.id &&
     prevProps.item.poster_path === nextProps.item.poster_path &&
-    prevProps.item.platforms?.length === nextProps.item.platforms?.length
-  );
+    prevProps.item.type === nextProps.item.type;
+
+  // Compare user platforms (used for filtering loaded platforms)
+  const sameUserPlatforms =
+    prevProps.userPlatforms?.length === nextProps.userPlatforms?.length;
+
+  return sameItem && sameUserPlatforms;
 });

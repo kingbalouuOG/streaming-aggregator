@@ -154,35 +154,25 @@ const MainTabs = () => {
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarStyle: {
-          position: 'absolute',
-          bottom: Math.max(insets.bottom, 10) + 10,
-          left: 20,
-          right: 20,
-          height: 65,
-          backgroundColor: colors.background.secondary,
-          borderRadius: 35,
-          borderWidth: 1,
-          borderColor: 'rgba(70, 255, 51, 0.3)',
+          height: 70 + Math.max(insets.bottom, 0),
+          backgroundColor: 'rgba(18, 18, 18, 0.95)',
           borderTopWidth: 1,
-          paddingBottom: 0,
-          paddingTop: 0,
-          paddingHorizontal: 15,
-          // Glow effect with brand color
-          shadowColor: colors.accent.primary,
-          shadowOffset: { width: 0, height: 0 },
-          shadowOpacity: 0.4,
-          shadowRadius: 20,
-          // Android elevation
-          elevation: 15,
+          borderTopColor: 'rgba(255, 255, 255, 0.1)',
+          paddingBottom: Math.max(insets.bottom, 8),
+          paddingTop: 8,
+          paddingHorizontal: 20,
+          elevation: 0,
+          shadowOpacity: 0,
         },
         tabBarActiveTintColor: colors.accent.primary,
         tabBarInactiveTintColor: colors.text.tertiary,
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '400',
+          fontSize: 11,
+          fontWeight: '500',
+          marginTop: 4,
         },
         tabBarItemStyle: {
-          paddingVertical: 8,
+          paddingVertical: 4,
         },
         tabBarIcon: ({ focused, color, size }) => {
           let iconName;
@@ -195,7 +185,7 @@ const MainTabs = () => {
             iconName = focused ? 'person' : 'person-outline';
           }
 
-          return <Ionicons name={iconName} size={size} color={color} />;
+          return <Ionicons name={iconName} size={22} color={color} />;
         },
       })}
     >

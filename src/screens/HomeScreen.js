@@ -13,7 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, layout } from '../theme';
 import { getSelectedPlatforms } from '../storage/userPreferences';
-import { discoverMovies, discoverTV } from '../api/tmdb';
+import { discoverMovies, discoverTV, getContentWatchProviders } from '../api/tmdb';
+import { mapRentBuyToSubscription } from '../constants/platforms';
 import ContentCard from '../components/ContentCard';
 import FilterChip from '../components/FilterChip';
 import FilterModal from '../components/FilterModal';
@@ -89,54 +90,57 @@ const HomeScreen = ({ navigation }) => {
       const ratingParams = getRatingParams();
       const filteredPlatforms = getFilteredPlatforms(platformIds);
 
-      for (const platformId of filteredPlatforms) {
-        // Fetch based on filter
-        if (shouldFetchMovies()) {
-          const moviesResponse = await discoverMovies({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            sort_by: 'popularity.desc',
-            page: 1,
-            ...genreParams,
-            ...ratingParams,
-          });
+      // Query all platforms at once using | (OR) operator
+      const platformsParam = filteredPlatforms.join('|');
 
-          if (moviesResponse.success && moviesResponse.data.results) {
-            allContent.push(
-              ...moviesResponse.data.results.map((item) => ({
-                ...item,
-                type: 'movie',
-                platformId,
-              }))
-            );
-          }
-        }
+      if (shouldFetchMovies()) {
+        const moviesResponse = await discoverMovies({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'popularity.desc',
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
 
-        if (shouldFetchTV()) {
-          const tvResponse = await discoverTV({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            sort_by: 'popularity.desc',
-            page: 1,
-            ...genreParams,
-            ...ratingParams,
-          });
-
-          if (tvResponse.success && tvResponse.data.results) {
-            allContent.push(
-              ...tvResponse.data.results.map((item) => ({
-                ...item,
-                type: 'tv',
-                platformId,
-              }))
-            );
-          }
+        if (moviesResponse.success && moviesResponse.data.results) {
+          allContent.push(
+            ...moviesResponse.data.results.map((item) => ({
+              ...item,
+              type: 'movie',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
         }
       }
 
-      // Merge and deduplicate by ID
-      const merged = mergeAndDeduplicateContent(allContent, platformIds);
-      setPopularContent(merged.slice(0, 20));
+      if (shouldFetchTV()) {
+        const tvResponse = await discoverTV({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'popularity.desc',
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (tvResponse.success && tvResponse.data.results) {
+          allContent.push(
+            ...tvResponse.data.results.map((item) => ({
+              ...item,
+              type: 'tv',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
+        }
+      }
+
+      // Deduplicate by ID
+      const deduped = deduplicateContent(allContent);
+
+      // Apply cost filter if active
+      const filtered = await applyCostFilter(deduped.slice(0, 30), platformIds);
+      setPopularContent(filtered.slice(0, 20));
     } catch (error) {
       console.error('[HomeScreen] Error fetching popular content:', error);
     }
@@ -150,54 +154,58 @@ const HomeScreen = ({ navigation }) => {
       const ratingParams = getRatingParams();
       const filteredPlatforms = getFilteredPlatforms(platformIds);
 
-      for (const platformId of filteredPlatforms) {
-        if (shouldFetchMovies()) {
-          const moviesResponse = await discoverMovies({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            sort_by: 'release_date.desc',
-            'release_date.lte': new Date().toISOString().split('T')[0],
-            page: 1,
-            ...genreParams,
-            ...ratingParams,
-          });
+      // Query all platforms at once using | (OR) operator
+      const platformsParam = filteredPlatforms.join('|');
 
-          if (moviesResponse.success && moviesResponse.data.results) {
-            allContent.push(
-              ...moviesResponse.data.results.map((item) => ({
-                ...item,
-                type: 'movie',
-                platformId,
-              }))
-            );
-          }
-        }
+      if (shouldFetchMovies()) {
+        const moviesResponse = await discoverMovies({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'release_date.desc',
+          'release_date.lte': new Date().toISOString().split('T')[0],
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
 
-        if (shouldFetchTV()) {
-          const tvResponse = await discoverTV({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            sort_by: 'first_air_date.desc',
-            'first_air_date.lte': new Date().toISOString().split('T')[0],
-            page: 1,
-            ...genreParams,
-            ...ratingParams,
-          });
-
-          if (tvResponse.success && tvResponse.data.results) {
-            allContent.push(
-              ...tvResponse.data.results.map((item) => ({
-                ...item,
-                type: 'tv',
-                platformId,
-              }))
-            );
-          }
+        if (moviesResponse.success && moviesResponse.data.results) {
+          allContent.push(
+            ...moviesResponse.data.results.map((item) => ({
+              ...item,
+              type: 'movie',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
         }
       }
 
-      const merged = mergeAndDeduplicateContent(allContent, platformIds);
-      setRecentContent(merged.slice(0, 20));
+      if (shouldFetchTV()) {
+        const tvResponse = await discoverTV({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'first_air_date.desc',
+          'first_air_date.lte': new Date().toISOString().split('T')[0],
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (tvResponse.success && tvResponse.data.results) {
+          allContent.push(
+            ...tvResponse.data.results.map((item) => ({
+              ...item,
+              type: 'tv',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
+        }
+      }
+
+      const deduped = deduplicateContent(allContent);
+
+      // Apply cost filter if active
+      const filtered = await applyCostFilter(deduped.slice(0, 30), platformIds);
+      setRecentContent(filtered.slice(0, 20));
     } catch (error) {
       console.error('[HomeScreen] Error fetching recent content:', error);
     }
@@ -217,82 +225,74 @@ const HomeScreen = ({ navigation }) => {
       const ratingParams = getRatingParams();
       const filteredPlatforms = getFilteredPlatforms(platformIds);
 
+      // Query all platforms at once using | (OR) operator
+      const platformsParam = filteredPlatforms.join('|');
+
       // Combine the section genre with any user-selected genres from modal
       const combinedGenres = genreParams.with_genres
         ? `${genreId},${genreParams.with_genres}`
         : genreId.toString();
 
-      for (const platformId of filteredPlatforms) {
-        if (shouldFetchMovies()) {
-          const moviesResponse = await discoverMovies({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            with_genres: combinedGenres,
-            sort_by: 'popularity.desc',
-            page: 1,
-            ...ratingParams,
-          });
+      if (shouldFetchMovies()) {
+        const moviesResponse = await discoverMovies({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          with_genres: combinedGenres,
+          sort_by: 'popularity.desc',
+          page: 1,
+          ...ratingParams,
+        });
 
-          if (moviesResponse.success && moviesResponse.data.results) {
-            allContent.push(
-              ...moviesResponse.data.results.map((item) => ({
-                ...item,
-                type: 'movie',
-                platformId,
-              }))
-            );
-          }
-        }
-
-        if (shouldFetchTV()) {
-          const tvResponse = await discoverTV({
-            watch_region: 'GB',
-            with_watch_providers: platformId,
-            with_genres: combinedGenres,
-            sort_by: 'popularity.desc',
-            page: 1,
-            ...ratingParams,
-          });
-
-          if (tvResponse.success && tvResponse.data.results) {
-            allContent.push(
-              ...tvResponse.data.results.map((item) => ({
-                ...item,
-                type: 'tv',
-                platformId,
-              }))
-            );
-          }
+        if (moviesResponse.success && moviesResponse.data.results) {
+          allContent.push(
+            ...moviesResponse.data.results.map((item) => ({
+              ...item,
+              type: 'movie',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
         }
       }
 
-      const merged = mergeAndDeduplicateContent(allContent, platformIds);
-      setter(merged.slice(0, 20));
+      if (shouldFetchTV()) {
+        const tvResponse = await discoverTV({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          with_genres: combinedGenres,
+          sort_by: 'popularity.desc',
+          page: 1,
+          ...ratingParams,
+        });
+
+        if (tvResponse.success && tvResponse.data.results) {
+          allContent.push(
+            ...tvResponse.data.results.map((item) => ({
+              ...item,
+              type: 'tv',
+              platforms: null, // Will be lazy-loaded by ContentCard
+            }))
+          );
+        }
+      }
+
+      const deduped = deduplicateContent(allContent);
+
+      // Apply cost filter if active
+      const filtered = await applyCostFilter(deduped.slice(0, 30), platformIds);
+      setter(filtered.slice(0, 20));
     } catch (error) {
       console.error(`[HomeScreen] Error fetching genre ${genreId} content:`, error);
     }
   };
 
-  // Merge content from multiple platforms and deduplicate
-  const mergeAndDeduplicateContent = (contentArray, platformIds) => {
+  // Deduplicate content by ID and sort by popularity
+  const deduplicateContent = (contentArray) => {
     const contentMap = new Map();
 
     contentArray.forEach((item) => {
       const key = `${item.type}-${item.id}`;
-
-      if (contentMap.has(key)) {
-        // Item exists, add platform to its list
-        const existing = contentMap.get(key);
-        const platform = platformIds.find((p) => p === item.platformId);
-        if (platform && !existing.platforms.some((p) => p.id === platform)) {
-          existing.platforms.push({ id: platform, name: getPlatformName(platform) });
-        }
-      } else {
-        // New item
-        contentMap.set(key, {
-          ...item,
-          platforms: [{ id: item.platformId, name: getPlatformName(item.platformId) }],
-        });
+      if (!contentMap.has(key)) {
+        contentMap.set(key, item);
       }
     });
 
@@ -302,19 +302,80 @@ const HomeScreen = ({ navigation }) => {
     );
   };
 
-  // Get platform name by ID
-  const getPlatformName = (id) => {
-    const platformNames = {
-      8: 'Netflix',
-      9: 'Prime',
-      350: 'Apple TV+',
-      337: 'Disney+',
-      39: 'Now TV',
-      38: 'iPlayer',
-      41: 'ITVX',
-      103: 'C4',
-    };
-    return platformNames[id] || 'Unknown';
+  // Apply cost filter by fetching watch providers and filtering
+  // Paid: Content with rent/buy availability on user's platforms
+  // Free: ALL OTHER RESULTS (everything that doesn't have rent/buy only)
+  const applyCostFilter = async (contentArray, platformIds) => {
+    // Skip if no cost filter applied
+    if (filters.costFilter === 'all') {
+      return contentArray;
+    }
+
+    // Fetch watch providers for all items in parallel (with batching)
+    const BATCH_SIZE = 10;
+    const results = [];
+
+    for (let i = 0; i < contentArray.length; i += BATCH_SIZE) {
+      const batch = contentArray.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (item) => {
+          const mediaType = item.type === 'tv' ? 'tv' : 'movie';
+          const response = await getContentWatchProviders(item.id, mediaType);
+
+          if (!response.success) {
+            // If we can't fetch data, include in "free" results, exclude from "paid"
+            return {
+              item,
+              isPaid: false,
+              platforms: null,
+            };
+          }
+
+          const { flatrate = [], rent = [], buy = [] } = response.data;
+
+          // Check if any of the user's platforms have rent/buy availability
+          const userPlatformIds = platformIds.map(p => typeof p === 'object' ? p.id : p);
+
+          // Get matching rent/buy platforms (using mapping to match store IDs to subscription IDs)
+          // e.g., Amazon Video (10) maps to Amazon Prime Video (9)
+          const matchingPaid = [...rent, ...buy].filter(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            return userPlatformIds.includes(mappedId) || userPlatformIds.includes(p.provider_id);
+          });
+
+          // Item is "paid" if it has rent/buy availability on user's platforms
+          const isPaid = matchingPaid.length > 0;
+
+          // Pre-load platforms for paid items (show the mapped subscription platform ID)
+          // This ensures Amazon Video (10) shows as Amazon Prime (9) badge
+          const platforms = isPaid
+            ? matchingPaid.map(p => {
+                const mappedId = mapRentBuyToSubscription(p.provider_id);
+                return { id: mappedId, name: p.provider_name };
+              })
+            : null; // Let ContentCard lazy-load for free items
+
+          return {
+            item: { ...item, platforms },
+            isPaid,
+          };
+        })
+      );
+      results.push(...batchResults);
+    }
+
+    // Filter based on cost type
+    if (filters.costFilter === 'paid') {
+      // Paid: only items with rent/buy availability
+      return results
+        .filter(({ isPaid }) => isPaid)
+        .map(({ item }) => item);
+    } else {
+      // Free: ALL OTHER RESULTS (everything that's not paid)
+      return results
+        .filter(({ isPaid }) => !isPaid)
+        .map(({ item }) => item);
+    }
   };
 
   // Filter helpers
@@ -400,7 +461,11 @@ const HomeScreen = ({ navigation }) => {
           horizontal
           data={data}
           renderItem={({ item }) => (
-            <ContentCard item={item} onPress={handleCardPress} />
+            <ContentCard
+              item={item}
+              onPress={handleCardPress}
+              userPlatforms={platforms}
+            />
           )}
           keyExtractor={(item, index) => `${item.type}-${item.id}-${index}`}
           showsHorizontalScrollIndicator={false}

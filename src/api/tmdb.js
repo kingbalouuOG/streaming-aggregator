@@ -382,6 +382,55 @@ export const getWatchProviders = async (region = 'GB', mediaType = 'movie') => {
   }
 };
 
+// Get watch providers for a specific content item (movie or TV show)
+export const getContentWatchProviders = async (contentId, mediaType = 'movie', region = 'GB') => {
+  try {
+    if (!contentId) {
+      throw new Error('Content ID is required');
+    }
+
+    // Check cache first
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`${mediaType}_${contentId}_providers`, { region });
+      const cached = await getCachedData(cacheKey);
+      if (cached) {
+        return {
+          success: true,
+          data: cached,
+        };
+      }
+    }
+
+    const response = await tmdbClient.get(`/${mediaType}/${contentId}/watch/providers`);
+
+    // Extract region-specific data
+    const regionData = response.data?.results?.[region] || {};
+    const result = {
+      flatrate: regionData.flatrate || [],  // Subscription services
+      rent: regionData.rent || [],          // Rental options
+      buy: regionData.buy || [],            // Purchase options
+    };
+
+    // Cache the response
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`${mediaType}_${contentId}_providers`, { region });
+      await setCachedData(cacheKey, result);
+    }
+
+    return {
+      success: true,
+      data: result,
+    };
+  } catch (error) {
+    console.error('TMDb Content Watch Providers Error:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      data: { flatrate: [], rent: [], buy: [] },
+    };
+  }
+};
+
 // Build image URL helper
 export const buildImageUrl = (path, size = 'w500') => {
   if (!path) return null;
@@ -412,6 +461,7 @@ export default {
   getTVDetails,
   searchMulti,
   getWatchProviders,
+  getContentWatchProviders,
   buildImageUrl,
   buildPosterUrl,
   buildBackdropUrl,
