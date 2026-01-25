@@ -7,6 +7,7 @@ import React, { memo } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   Pressable,
   Dimensions,
@@ -16,6 +17,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors, typography, spacing, layout } from '../theme';
 import GlassContainer from './GlassContainer';
 import ProgressiveImage from './ProgressiveImage';
+
+// Platform logo mapping
+const PLATFORM_LOGOS = {
+  8: require('../../assets/platform-logos/Netflix_icon.svg.png'),        // Netflix
+  9: require('../../assets/platform-logos/Amazon-Prime-Video-Icon.png'), // Amazon Prime
+  337: require('../../assets/platform-logos/Disney_plus_icon.png'),      // Disney+
+  350: require('../../assets/platform-logos/Apple-TV-logo.png'),         // Apple TV+
+};
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.4; // 40% of screen width
@@ -109,21 +118,32 @@ const ContentCard = ({ item, onPress }) => {
         {/* Platform Badges - Top Right */}
         {platforms.length > 0 && (
           <View style={styles.badgesContainer}>
-            {visiblePlatforms.map((platform, index) => (
-              <View
-                key={`${platform.id}-${index}`}
-                style={[
-                  styles.badge,
-                  index > 0 && { marginLeft: -spacing.sm },
-                ]}
-              >
-                <View style={styles.badgeInner}>
-                  <Text style={styles.badgeText}>
-                    {platform.name?.charAt(0) || '?'}
-                  </Text>
+            {visiblePlatforms.map((platform, index) => {
+              const hasLogo = PLATFORM_LOGOS[platform.id];
+              return (
+                <View
+                  key={`${platform.id}-${index}`}
+                  style={[
+                    styles.badge,
+                    index > 0 && { marginLeft: -spacing.sm },
+                  ]}
+                >
+                  {hasLogo ? (
+                    <Image
+                      source={PLATFORM_LOGOS[platform.id]}
+                      style={styles.badgeLogo}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.badgeInner}>
+                      <Text style={styles.badgeText}>
+                        {platform.name?.charAt(0) || '?'}
+                      </Text>
+                    </View>
+                  )}
                 </View>
-              </View>
-            ))}
+              );
+            })}
             {remainingCount > 0 && (
               <View style={[styles.badge, { marginLeft: -spacing.sm }]}>
                 <View style={styles.badgeInner}>
@@ -187,21 +207,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   badge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 28,
+    height: 28,
+    borderRadius: 6,
     backgroundColor: colors.overlay.medium,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: colors.background.primary,
+    overflow: 'hidden',
+  },
+  badgeLogo: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
   },
   badgeInner: {
     justifyContent: 'center',
     alignItems: 'center',
   },
   badgeText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: '700',
     color: colors.text.primary,
   },
