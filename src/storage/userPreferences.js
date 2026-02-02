@@ -6,6 +6,7 @@ const DEBUG = __DEV__;
 const STORAGE_KEYS = {
   USER_PROFILE: '@user_profile',
   USER_PREFERENCES: '@user_preferences',
+  THEME_PREFERENCE: '@app_theme_preference',
 };
 
 /**

@@ -16,7 +16,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, typography, spacing, layout } from '../theme';
+import { useTheme, colors, typography, spacing, layout } from '../theme';
 import GlassContainer from './GlassContainer';
 import ProgressiveImage from './ProgressiveImage';
 import { getContentWatchProviders } from '../api/tmdb';
@@ -39,6 +39,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.4; // 40% of screen width
 
 const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
+  const { colors } = useTheme();
   const {
     id,
     title,

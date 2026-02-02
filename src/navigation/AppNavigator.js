@@ -11,7 +11,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 
-import { colors, typography } from '../theme';
+import { useTheme, typography } from '../theme';
 import { hasCompletedOnboarding } from '../storage/userPreferences';
 
 // Onboarding Screens
@@ -29,9 +29,9 @@ import DetailScreen from '../screens/DetailScreen';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
-// Dark theme for navigation
-const navigationTheme = {
-  dark: true,
+// Create navigation theme based on current theme
+const getNavigationTheme = (isDark, colors) => ({
+  dark: isDark,
   colors: {
     primary: colors.accent.primary,
     background: colors.background.primary,
@@ -60,10 +60,10 @@ const navigationTheme = {
       heavy: { fontFamily: 'System', fontWeight: '700' },
     },
   }),
-};
+});
 
-// Glass header styling
-const glassHeaderOptions = {
+// Glass header styling - now a function
+const getGlassHeaderOptions = (colors) => ({
   headerStyle: {
     backgroundColor: colors.background.secondary,
     borderBottomWidth: 1,
@@ -79,10 +79,13 @@ const glassHeaderOptions = {
   // Explicitly set these to avoid type casting issues
   headerShown: true,
   gestureEnabled: true,
-};
+});
 
 // Onboarding Stack Navigator
 const OnboardingStack = () => {
+  const { colors } = useTheme();
+  const glassHeaderOptions = getGlassHeaderOptions(colors);
+
   return (
     <Stack.Navigator
       screenOptions={{
@@ -100,6 +103,9 @@ const OnboardingStack = () => {
 
 // Home Tab Stack Navigator
 const HomeStack = () => {
+  const { colors } = useTheme();
+  const glassHeaderOptions = getGlassHeaderOptions(colors);
+
   return (
     <Stack.Navigator screenOptions={glassHeaderOptions}>
       <Stack.Screen
@@ -118,6 +124,9 @@ const HomeStack = () => {
 
 // Browse Tab Stack Navigator
 const BrowseStack = () => {
+  const { colors } = useTheme();
+  const glassHeaderOptions = getGlassHeaderOptions(colors);
+
   return (
     <Stack.Navigator screenOptions={glassHeaderOptions}>
       <Stack.Screen
@@ -136,6 +145,9 @@ const BrowseStack = () => {
 
 // Profile Tab Stack Navigator
 const ProfileStack = () => {
+  const { colors } = useTheme();
+  const glassHeaderOptions = getGlassHeaderOptions(colors);
+
   return (
     <Stack.Navigator screenOptions={glassHeaderOptions}>
       <Stack.Screen
@@ -149,6 +161,7 @@ const ProfileStack = () => {
 
 // Main Tabs Navigator
 const MainTabs = () => {
+  const { colors } = useTheme();
   const insets = useSafeAreaInsets();
 
   return (
@@ -157,9 +170,9 @@ const MainTabs = () => {
         headerShown: false,
         tabBarStyle: {
           height: 70 + Math.max(insets.bottom, 0),
-          backgroundColor: 'rgba(18, 18, 18, 0.95)',
+          backgroundColor: colors.background.secondary,
           borderTopWidth: 1,
-          borderTopColor: 'rgba(255, 255, 255, 0.1)',
+          borderTopColor: colors.glass.border,
           paddingBottom: Math.max(insets.bottom, 8),
           paddingTop: 8,
           paddingHorizontal: 20,
@@ -212,6 +225,7 @@ const MainTabs = () => {
 
 // Root Navigator - Switches between Onboarding and Main Tabs
 const AppNavigator = () => {
+  const { colors, isDark } = useTheme();
   const [isOnboardingComplete, setIsOnboardingComplete] = useState(null);
 
   useEffect(() => {
@@ -231,11 +245,13 @@ const AppNavigator = () => {
   // Show loading indicator while checking onboarding status
   if (isOnboardingComplete === null) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { backgroundColor: colors.background.primary }]}>
         <ActivityIndicator size="large" color={colors.accent.primary} />
       </View>
     );
   }
+
+  const navigationTheme = getNavigationTheme(isDark, colors);
 
   return (
     <NavigationContainer theme={navigationTheme}>
@@ -253,7 +269,6 @@ const AppNavigator = () => {
 const styles = StyleSheet.create({
   loadingContainer: {
     flex: 1,
-    backgroundColor: colors.background.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },

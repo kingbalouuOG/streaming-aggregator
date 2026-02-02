@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useNavigation, CommonActions } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, typography, spacing, layout } from '../theme';
+import { useTheme, colors, typography, spacing, layout } from '../theme';
 import ServiceCard from '../components/ServiceCard';
 import ProfileAvatar from '../components/ProfileAvatar';
 import GlassContainer from '../components/GlassContainer';
@@ -53,6 +53,7 @@ const ALL_GENRES = [
 
 const ProfileScreen = () => {
   const navigation = useNavigation();
+  const { colors, isDark, toggleTheme, themePreference, setSystemPreference } = useTheme();
 
   // Loading and status states
   const [isLoading, setIsLoading] = useState(true);
@@ -470,6 +471,49 @@ const ProfileScreen = () => {
             <Ionicons name="musical-notes" size={18} color={colors.accent.primary} />
             <Text style={styles.editButtonText}>Edit Genres</Text>
           </Pressable>
+        </View>
+
+        {/* Theme Settings Section */}
+        <View style={styles.section}>
+          <Text style={[typography.caption, styles.sectionLabel]}>
+            APPEARANCE
+          </Text>
+
+          {/* Theme Mode Toggle */}
+          <View style={styles.themeRow}>
+            <View style={styles.themeInfo}>
+              <Ionicons
+                name={isDark ? 'moon' : 'sunny'}
+                size={24}
+                color={colors.accent.primary}
+                style={styles.themeIcon}
+              />
+              <View>
+                <Text style={[typography.body, styles.themeLabel]}>Theme</Text>
+                <Text style={[typography.metadata, styles.themeValue]}>
+                  {themePreference ? (themePreference === 'light' ? 'Light' : 'Dark') : 'System'}
+                </Text>
+              </View>
+            </View>
+            <Pressable
+              style={[styles.themeButton, { backgroundColor: colors.accent.primary }]}
+              onPress={toggleTheme}
+            >
+              <Ionicons
+                name={isDark ? 'sunny' : 'moon'}
+                size={18}
+                color={isDark ? '#1A1A1A' : colors.background.primary}
+              />
+            </Pressable>
+          </View>
+
+          {/* System Preference Button */}
+          {themePreference && (
+            <Pressable style={styles.editButton} onPress={setSystemPreference}>
+              <Ionicons name="settings" size={18} color={colors.accent.primary} />
+              <Text style={styles.editButtonText}>Use System Preference</Text>
+            </Pressable>
+          )}
         </View>
 
         {/* Error Message */}
@@ -914,6 +958,41 @@ const styles = StyleSheet.create({
   genreModalChipTextSelected: {
     color: colors.text.primary,
     fontWeight: '600',
+  },
+  // Theme styles
+  themeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.background.tertiary,
+    borderRadius: layout.borderRadius.medium,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.glass.border,
+  },
+  themeInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  themeIcon: {
+    marginRight: spacing.md,
+  },
+  themeLabel: {
+    color: colors.text.primary,
+    marginBottom: spacing.xs,
+  },
+  themeValue: {
+    color: colors.text.tertiary,
+  },
+  themeButton: {
+    width: 44,
+    height: 44,
+    borderRadius: layout.borderRadius.medium,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
