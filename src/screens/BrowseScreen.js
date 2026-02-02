@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Dimensions,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, layout } from '../theme';
 import { getSelectedPlatforms } from '../storage/userPreferences';
 import { discoverMovies, discoverTV, searchMulti } from '../api/tmdb';
@@ -37,6 +38,35 @@ const BrowseScreen = ({ navigation }) => {
   useEffect(() => {
     loadPlatformsAndContent();
   }, []);
+
+  // Reload platforms when screen gains focus (handles profile changes)
+  useFocusEffect(
+    useCallback(() => {
+      const reloadPlatforms = async () => {
+        try {
+          const platformIds = await getSelectedPlatforms();
+          const platformsChanged =
+            JSON.stringify([...platformIds].sort()) !== JSON.stringify([...platforms].sort());
+
+          if (platformsChanged && platforms.length > 0) {
+            console.log('[BrowseScreen] Platforms changed, reloading content');
+            setPlatforms(platformIds);
+            setCurrentPage(1);
+            setHasMorePages(true);
+            if (searchQuery.trim()) {
+              searchContent(searchQuery, 1);
+            } else {
+              loadBrowseContent(1);
+            }
+          }
+        } catch (error) {
+          console.error('[BrowseScreen] Error reloading platforms:', error);
+        }
+      };
+
+      reloadPlatforms();
+    }, [platforms, searchQuery])
+  );
 
   useEffect(() => {
     // Reset and reload when filter changes

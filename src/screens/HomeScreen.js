@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,14 @@ import {
   ActivityIndicator,
   Pressable,
   Image,
+  RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, layout } from '../theme';
-import { getSelectedPlatforms } from '../storage/userPreferences';
+import { getSelectedPlatforms, getHomeGenres } from '../storage/userPreferences';
+import { GENRE_NAMES } from '../constants/genres';
 import { discoverMovies, discoverTV, getContentWatchProviders } from '../api/tmdb';
 import { mapRentBuyToSubscription } from '../constants/platforms';
 import ContentCard from '../components/ContentCard';
@@ -35,16 +38,40 @@ const HomeScreen = ({ navigation }) => {
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [platforms, setPlatforms] = useState([]);
   const [popularContent, setPopularContent] = useState([]);
+  const [highestRatedContent, setHighestRatedContent] = useState([]);
   const [recentContent, setRecentContent] = useState([]);
-  const [actionContent, setActionContent] = useState([]);
-  const [comedyContent, setComedyContent] = useState([]);
-  const [dramaContent, setDramaContent] = useState([]);
+  const [homeGenres, setHomeGenres] = useState([]);
+  const [genreSections, setGenreSections] = useState({});
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
 
   useEffect(() => {
     loadContent();
   }, []);
+
+  // Reload platforms when screen gains focus (handles profile changes)
+  useFocusEffect(
+    useCallback(() => {
+      const reloadPlatforms = async () => {
+        try {
+          const platformIds = await getSelectedPlatforms();
+          const platformsChanged =
+            JSON.stringify([...platformIds].sort()) !== JSON.stringify([...platforms].sort());
+
+          if (platformsChanged && platforms.length > 0) {
+            console.log('[HomeScreen] Platforms changed, reloading content');
+            setPlatforms(platformIds);
+            loadContent();
+          }
+        } catch (error) {
+          console.error('[HomeScreen] Error reloading platforms:', error);
+        }
+      };
+
+      reloadPlatforms();
+    }, [platforms])
+  );
 
   useEffect(() => {
     // Reload content when filters change
@@ -53,7 +80,7 @@ const HomeScreen = ({ navigation }) => {
     }
   }, [filters]);
 
-  // Load user's platforms and fetch content
+  // Load user's platforms and fetch content with cross-section deduplication
   const loadContent = async () => {
     setIsLoading(true);
     try {
@@ -67,14 +94,30 @@ const HomeScreen = ({ navigation }) => {
         return;
       }
 
-      // Fetch content from all platforms
-      await Promise.all([
-        fetchPopularContent(platformIds),
-        fetchRecentContent(platformIds),
-        fetchGenreContent(platformIds, 28, setActionContent), // Action
-        fetchGenreContent(platformIds, 35, setComedyContent), // Comedy
-        fetchGenreContent(platformIds, 18, setDramaContent), // Drama
-      ]);
+      // Get user's selected home genres
+      const userGenres = await getHomeGenres();
+      setHomeGenres(userGenres);
+
+      // Global exclusion set to prevent duplicates across sections
+      const exclusionSet = new Set();
+
+      // 1. Popular (highest priority - no exclusions)
+      const popular = await fetchPopularContentWithExclusion(platformIds, exclusionSet);
+      popular.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      setPopularContent(popular);
+
+      // 2. Highest Rated (exclude popular)
+      const highestRated = await fetchHighestRatedContentWithExclusion(platformIds, exclusionSet);
+      highestRated.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      setHighestRatedContent(highestRated);
+
+      // 3. Recently Added (exclude popular + highest rated)
+      const recent = await fetchRecentContentWithExclusion(platformIds, exclusionSet);
+      recent.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      setRecentContent(recent);
+
+      // 4. Genre sections (exclude all above)
+      await fetchAllGenreSections(platformIds, userGenres, exclusionSet);
     } catch (error) {
       console.error('[HomeScreen] Error loading content:', error);
     } finally {
@@ -82,142 +125,31 @@ const HomeScreen = ({ navigation }) => {
     }
   };
 
-  // Fetch popular content from all platforms
-  const fetchPopularContent = async (platformIds) => {
-    try {
-      const allContent = [];
-      const genreParams = getGenreParams();
-      const ratingParams = getRatingParams();
-      const filteredPlatforms = getFilteredPlatforms(platformIds);
+  // Fetch all genre sections based on user preferences with deduplication
+  const fetchAllGenreSections = async (platformIds, genreIds, exclusionSet) => {
+    const newGenreSections = {};
 
-      // Query all platforms at once using | (OR) operator
-      const platformsParam = filteredPlatforms.join('|');
-
-      if (shouldFetchMovies()) {
-        const moviesResponse = await discoverMovies({
-          watch_region: 'GB',
-          with_watch_providers: platformsParam,
-          sort_by: 'popularity.desc',
-          page: 1,
-          ...genreParams,
-          ...ratingParams,
-        });
-
-        if (moviesResponse.success && moviesResponse.data.results) {
-          allContent.push(
-            ...moviesResponse.data.results.map((item) => ({
-              ...item,
-              type: 'movie',
-              platforms: null, // Will be lazy-loaded by ContentCard
-            }))
-          );
-        }
-      }
-
-      if (shouldFetchTV()) {
-        const tvResponse = await discoverTV({
-          watch_region: 'GB',
-          with_watch_providers: platformsParam,
-          sort_by: 'popularity.desc',
-          page: 1,
-          ...genreParams,
-          ...ratingParams,
-        });
-
-        if (tvResponse.success && tvResponse.data.results) {
-          allContent.push(
-            ...tvResponse.data.results.map((item) => ({
-              ...item,
-              type: 'tv',
-              platforms: null, // Will be lazy-loaded by ContentCard
-            }))
-          );
-        }
-      }
-
-      // Deduplicate by ID
-      const deduped = deduplicateContent(allContent);
-
-      // Apply cost filter if active
-      const filtered = await applyCostFilter(deduped.slice(0, 30), platformIds);
-      setPopularContent(filtered.slice(0, 20));
-    } catch (error) {
-      console.error('[HomeScreen] Error fetching popular content:', error);
+    // Fetch genres sequentially to properly deduplicate across all genre sections
+    for (const genreId of genreIds) {
+      const content = await fetchGenreSectionContent(platformIds, genreId, exclusionSet);
+      content.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      newGenreSections[genreId] = content;
     }
+
+    setGenreSections(newGenreSections);
   };
 
-  // Fetch recently added content
-  const fetchRecentContent = async (platformIds) => {
-    try {
-      const allContent = [];
-      const genreParams = getGenreParams();
-      const ratingParams = getRatingParams();
-      const filteredPlatforms = getFilteredPlatforms(platformIds);
-
-      // Query all platforms at once using | (OR) operator
-      const platformsParam = filteredPlatforms.join('|');
-
-      if (shouldFetchMovies()) {
-        const moviesResponse = await discoverMovies({
-          watch_region: 'GB',
-          with_watch_providers: platformsParam,
-          sort_by: 'release_date.desc',
-          'release_date.lte': new Date().toISOString().split('T')[0],
-          page: 1,
-          ...genreParams,
-          ...ratingParams,
-        });
-
-        if (moviesResponse.success && moviesResponse.data.results) {
-          allContent.push(
-            ...moviesResponse.data.results.map((item) => ({
-              ...item,
-              type: 'movie',
-              platforms: null, // Will be lazy-loaded by ContentCard
-            }))
-          );
-        }
-      }
-
-      if (shouldFetchTV()) {
-        const tvResponse = await discoverTV({
-          watch_region: 'GB',
-          with_watch_providers: platformsParam,
-          sort_by: 'first_air_date.desc',
-          'first_air_date.lte': new Date().toISOString().split('T')[0],
-          page: 1,
-          ...genreParams,
-          ...ratingParams,
-        });
-
-        if (tvResponse.success && tvResponse.data.results) {
-          allContent.push(
-            ...tvResponse.data.results.map((item) => ({
-              ...item,
-              type: 'tv',
-              platforms: null, // Will be lazy-loaded by ContentCard
-            }))
-          );
-        }
-      }
-
-      const deduped = deduplicateContent(allContent);
-
-      // Apply cost filter if active
-      const filtered = await applyCostFilter(deduped.slice(0, 30), platformIds);
-      setRecentContent(filtered.slice(0, 20));
-    } catch (error) {
-      console.error('[HomeScreen] Error fetching recent content:', error);
-    }
+  // Helper to filter out excluded content
+  const filterExcluded = (content, exclusionSet) => {
+    return content.filter(item => !exclusionSet.has(`${item.type}-${item.id}`));
   };
 
-  // Fetch content by genre
-  const fetchGenreContent = async (platformIds, genreId, setter) => {
+  // Fetch content for a single genre section (returns content instead of using setter)
+  const fetchGenreSectionContent = async (platformIds, genreId, exclusionSet = new Set()) => {
     try {
       // If documentaries filter is active and this isn't the documentary genre, skip
       if (filters.contentType === 'documentaries' && genreId !== DOCUMENTARY_GENRE_ID) {
-        setter([]);
-        return;
+        return [];
       }
 
       const allContent = [];
@@ -248,7 +180,7 @@ const HomeScreen = ({ navigation }) => {
             ...moviesResponse.data.results.map((item) => ({
               ...item,
               type: 'movie',
-              platforms: null, // Will be lazy-loaded by ContentCard
+              platforms: null,
             }))
           );
         }
@@ -269,7 +201,7 @@ const HomeScreen = ({ navigation }) => {
             ...tvResponse.data.results.map((item) => ({
               ...item,
               type: 'tv',
-              platforms: null, // Will be lazy-loaded by ContentCard
+              platforms: null,
             }))
           );
         }
@@ -277,11 +209,269 @@ const HomeScreen = ({ navigation }) => {
 
       const deduped = deduplicateContent(allContent);
 
-      // Apply cost filter if active
-      const filtered = await applyCostFilter(deduped.slice(0, 30), platformIds);
-      setter(filtered.slice(0, 20));
+      // Filter out content already shown in previous sections
+      const withoutExcluded = filterExcluded(deduped, exclusionSet);
+
+      // Apply cost filter if active (fetch more to compensate for exclusions)
+      const filtered = await applyCostFilter(withoutExcluded.slice(0, 40), platformIds);
+      return filtered.slice(0, 20);
     } catch (error) {
       console.error(`[HomeScreen] Error fetching genre ${genreId} content:`, error);
+      return [];
+    }
+  };
+
+  // Handle pull-to-refresh (with same deduplication logic as loadContent)
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    try {
+      const platformIds = await getSelectedPlatforms();
+      setPlatforms(platformIds);
+
+      if (platformIds.length === 0) {
+        setIsRefreshing(false);
+        return;
+      }
+
+      // Get user's selected home genres
+      const userGenres = await getHomeGenres();
+      setHomeGenres(userGenres);
+
+      // Global exclusion set to prevent duplicates across sections
+      const exclusionSet = new Set();
+
+      // 1. Popular (highest priority - no exclusions)
+      const popular = await fetchPopularContentWithExclusion(platformIds, exclusionSet);
+      popular.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      setPopularContent(popular);
+
+      // 2. Highest Rated (exclude popular)
+      const highestRated = await fetchHighestRatedContentWithExclusion(platformIds, exclusionSet);
+      highestRated.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      setHighestRatedContent(highestRated);
+
+      // 3. Recently Added (exclude popular + highest rated)
+      const recent = await fetchRecentContentWithExclusion(platformIds, exclusionSet);
+      recent.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      setRecentContent(recent);
+
+      // 4. Genre sections (exclude all above)
+      await fetchAllGenreSections(platformIds, userGenres, exclusionSet);
+    } catch (error) {
+      console.error('[HomeScreen] Error refreshing content:', error);
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  // Fetch popular content with exclusion support (returns content array)
+  const fetchPopularContentWithExclusion = async (platformIds, exclusionSet = new Set()) => {
+    try {
+      const allContent = [];
+      const genreParams = getGenreParams();
+      const ratingParams = getRatingParams();
+      const filteredPlatforms = getFilteredPlatforms(platformIds);
+
+      // Query all platforms at once using | (OR) operator
+      const platformsParam = filteredPlatforms.join('|');
+
+      if (shouldFetchMovies()) {
+        const moviesResponse = await discoverMovies({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'popularity.desc',
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (moviesResponse.success && moviesResponse.data.results) {
+          allContent.push(
+            ...moviesResponse.data.results.map((item) => ({
+              ...item,
+              type: 'movie',
+              platforms: null,
+            }))
+          );
+        }
+      }
+
+      if (shouldFetchTV()) {
+        const tvResponse = await discoverTV({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'popularity.desc',
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (tvResponse.success && tvResponse.data.results) {
+          allContent.push(
+            ...tvResponse.data.results.map((item) => ({
+              ...item,
+              type: 'tv',
+              platforms: null,
+            }))
+          );
+        }
+      }
+
+      // Deduplicate by ID
+      const deduped = deduplicateContent(allContent);
+
+      // Filter out content already shown in previous sections
+      const withoutExcluded = filterExcluded(deduped, exclusionSet);
+
+      // Apply cost filter if active (fetch more to compensate for exclusions)
+      const filtered = await applyCostFilter(withoutExcluded.slice(0, 40), platformIds);
+      return filtered.slice(0, 20);
+    } catch (error) {
+      console.error('[HomeScreen] Error fetching popular content:', error);
+      return [];
+    }
+  };
+
+  // Fetch recently added content with exclusion support (returns content array)
+  const fetchRecentContentWithExclusion = async (platformIds, exclusionSet = new Set()) => {
+    try {
+      const allContent = [];
+      const genreParams = getGenreParams();
+      const ratingParams = getRatingParams();
+      const filteredPlatforms = getFilteredPlatforms(platformIds);
+
+      // Query all platforms at once using | (OR) operator
+      const platformsParam = filteredPlatforms.join('|');
+
+      if (shouldFetchMovies()) {
+        const moviesResponse = await discoverMovies({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'release_date.desc',
+          'release_date.lte': new Date().toISOString().split('T')[0],
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (moviesResponse.success && moviesResponse.data.results) {
+          allContent.push(
+            ...moviesResponse.data.results.map((item) => ({
+              ...item,
+              type: 'movie',
+              platforms: null,
+            }))
+          );
+        }
+      }
+
+      if (shouldFetchTV()) {
+        const tvResponse = await discoverTV({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'first_air_date.desc',
+          'first_air_date.lte': new Date().toISOString().split('T')[0],
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (tvResponse.success && tvResponse.data.results) {
+          allContent.push(
+            ...tvResponse.data.results.map((item) => ({
+              ...item,
+              type: 'tv',
+              platforms: null,
+            }))
+          );
+        }
+      }
+
+      const deduped = deduplicateContent(allContent);
+
+      // Filter out content already shown in previous sections
+      const withoutExcluded = filterExcluded(deduped, exclusionSet);
+
+      // Apply cost filter if active (fetch more to compensate for exclusions)
+      const filtered = await applyCostFilter(withoutExcluded.slice(0, 40), platformIds);
+      return filtered.slice(0, 20);
+    } catch (error) {
+      console.error('[HomeScreen] Error fetching recent content:', error);
+      return [];
+    }
+  };
+
+  // Fetch highest rated content with exclusion support (returns content array)
+  const fetchHighestRatedContentWithExclusion = async (platformIds, exclusionSet = new Set()) => {
+    try {
+      const allContent = [];
+      const genreParams = getGenreParams();
+      const ratingParams = getRatingParams();
+      const filteredPlatforms = getFilteredPlatforms(platformIds);
+
+      // Query all platforms at once using | (OR) operator
+      const platformsParam = filteredPlatforms.join('|');
+
+      if (shouldFetchMovies()) {
+        const moviesResponse = await discoverMovies({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'vote_average.desc',
+          'vote_count.gte': 100, // Ensure reliable ratings
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (moviesResponse.success && moviesResponse.data.results) {
+          allContent.push(
+            ...moviesResponse.data.results.map((item) => ({
+              ...item,
+              type: 'movie',
+              platforms: null,
+            }))
+          );
+        }
+      }
+
+      if (shouldFetchTV()) {
+        const tvResponse = await discoverTV({
+          watch_region: 'GB',
+          with_watch_providers: platformsParam,
+          sort_by: 'vote_average.desc',
+          'vote_count.gte': 100, // Ensure reliable ratings
+          page: 1,
+          ...genreParams,
+          ...ratingParams,
+        });
+
+        if (tvResponse.success && tvResponse.data.results) {
+          allContent.push(
+            ...tvResponse.data.results.map((item) => ({
+              ...item,
+              type: 'tv',
+              platforms: null,
+            }))
+          );
+        }
+      }
+
+      // Sort by vote_average descending (highest rated first)
+      const sorted = allContent.sort(
+        (a, b) => (b.vote_average || 0) - (a.vote_average || 0)
+      );
+
+      const deduped = deduplicateContent(sorted);
+
+      // Filter out content already shown in previous sections
+      const withoutExcluded = filterExcluded(deduped, exclusionSet);
+
+      // Apply cost filter if active (fetch more to compensate for exclusions)
+      const filtered = await applyCostFilter(withoutExcluded.slice(0, 40), platformIds);
+      return filtered.slice(0, 20);
+    } catch (error) {
+      console.error('[HomeScreen] Error fetching highest rated content:', error);
+      return [];
     }
   };
 
@@ -557,12 +747,28 @@ const HomeScreen = ({ navigation }) => {
           style={styles.content}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.contentContainer}
+          refreshControl={
+            <RefreshControl
+              refreshing={isRefreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.accent.primary}
+              colors={[colors.accent.primary]}
+              progressBackgroundColor={colors.background.secondary}
+            />
+          }
         >
           {renderContentSection('Popular on Your Services', popularContent)}
+          {renderContentSection('Highest Rated', highestRatedContent)}
           {renderContentSection('Recently Added', recentContent)}
-          {renderContentSection('Action', actionContent)}
-          {renderContentSection('Comedy', comedyContent)}
-          {renderContentSection('Drama', dramaContent)}
+          {/* Dynamic Genre Sections */}
+          {homeGenres.map((genreId) => (
+            <React.Fragment key={`genre-${genreId}`}>
+              {renderContentSection(
+                GENRE_NAMES[genreId] || `Genre ${genreId}`,
+                genreSections[genreId] || []
+              )}
+            </React.Fragment>
+          ))}
         </ScrollView>
 
         {/* Filter Modal */}

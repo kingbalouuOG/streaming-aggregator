@@ -159,6 +159,64 @@ export const getSelectedPlatforms = async () => {
   }
 };
 
+// Default home genres (used when user skips genre selection)
+export const DEFAULT_HOME_GENRES = [
+  28,    // Action
+  35,    // Comedy
+  18,    // Drama
+  53,    // Thriller
+  878,   // Sci-Fi
+  27,    // Horror
+  10749, // Romance
+  80,    // Crime
+];
+
+/**
+ * Get user's selected homepage genres
+ * @returns {Promise<Array<number>>} Array of genre IDs
+ */
+export const getHomeGenres = async () => {
+  try {
+    const preferences = await getUserPreferences();
+
+    if (!preferences || !preferences.homeGenres || preferences.homeGenres.length === 0) {
+      if (DEBUG) console.log('[Storage] No home genres found, using defaults');
+      return DEFAULT_HOME_GENRES;
+    }
+
+    if (DEBUG) {
+      console.log('[Storage] Home genres retrieved:', preferences.homeGenres.length, 'genres');
+    }
+    return preferences.homeGenres;
+  } catch (error) {
+    console.error('[Storage] Error getting home genres:', error);
+    return DEFAULT_HOME_GENRES;
+  }
+};
+
+/**
+ * Save user's homepage genre selections
+ * @param {Array<number>} genreIds - Array of genre IDs
+ * @returns {Promise<void>}
+ */
+export const setHomeGenres = async (genreIds) => {
+  try {
+    const preferences = await getUserPreferences();
+
+    await saveUserPreferences({
+      ...preferences,
+      homeGenres: genreIds,
+    });
+
+    if (DEBUG) {
+      console.log('[Storage] Home genres saved:', genreIds.length, 'genres');
+    }
+  } catch (error) {
+    console.error('[Storage] Error saving home genres:', error);
+    throw error;
+  }
+};
+
 /**
  * Check if user has completed onboarding
  * Onboarding is complete when:
@@ -240,7 +298,10 @@ export default {
   saveUserPreferences,
   getUserPreferences,
   getSelectedPlatforms,
+  getHomeGenres,
+  setHomeGenres,
   hasCompletedOnboarding,
   clearAllData,
   STORAGE_KEYS,
+  DEFAULT_HOME_GENRES,
 };

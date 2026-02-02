@@ -21,12 +21,18 @@ import GlassContainer from './GlassContainer';
 import ProgressiveImage from './ProgressiveImage';
 import { getContentWatchProviders } from '../api/tmdb';
 
-// Platform logo mapping
+// Platform logo mapping - all platforms
 const PLATFORM_LOGOS = {
-  8: require('../../assets/platform-logos/Netflix_icon.svg.png'),        // Netflix
-  9: require('../../assets/platform-logos/Amazon-Prime-Video-Icon.png'), // Amazon Prime
-  337: require('../../assets/platform-logos/Disney_plus_icon.png'),      // Disney+
-  350: require('../../assets/platform-logos/Apple-TV-logo.png'),         // Apple TV+
+  8: require('../../assets/platform-logos/Netflix-logo.png'),
+  9: require('../../assets/platform-logos/Amazon-Prime-logo.png'),
+  350: require('../../assets/platform-logos/Apple-TV-logo.png'),
+  337: require('../../assets/platform-logos/Disney_plus_logo.png'),
+  39: require('../../assets/platform-logos/now-tv-logo.png'),
+  38: require('../../assets/platform-logos/bbc-iplayer-logo.png'),
+  54: require('../../assets/platform-logos/itvx-logo.png'),
+  103: require('../../assets/platform-logos/channel4-logo.png'),
+  582: require('../../assets/platform-logos/paramount-logo.png'),
+  29: require('../../assets/platform-logos/skygo-logo.png'),
 };
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');

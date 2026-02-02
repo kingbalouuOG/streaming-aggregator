@@ -18,6 +18,7 @@ import { hasCompletedOnboarding } from '../storage/userPreferences';
 import WelcomeScreen from '../screens/WelcomeScreen';
 import LocationScreen from '../screens/LocationScreen';
 import PlatformsScreen from '../screens/PlatformsScreen';
+import GenrePreferencesScreen from '../screens/GenrePreferencesScreen';
 
 // Main App Screens
 import HomeScreen from '../screens/HomeScreen';
@@ -92,6 +93,7 @@ const OnboardingStack = () => {
       <Stack.Screen name="Welcome" component={WelcomeScreen} />
       <Stack.Screen name="Location" component={LocationScreen} />
       <Stack.Screen name="Platforms" component={PlatformsScreen} />
+      <Stack.Screen name="GenrePreferences" component={GenrePreferencesScreen} />
     </Stack.Navigator>
   );
 };
@@ -237,12 +239,12 @@ const AppNavigator = () => {
 
   return (
     <NavigationContainer theme={navigationTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {!isOnboardingComplete ? (
-          <Stack.Screen name="Onboarding" component={OnboardingStack} />
-        ) : (
-          <Stack.Screen name="Main" component={MainTabs} />
-        )}
+      <Stack.Navigator
+        screenOptions={{ headerShown: false }}
+        initialRouteName={isOnboardingComplete ? 'Main' : 'Onboarding'}
+      >
+        <Stack.Screen name="Onboarding" component={OnboardingStack} />
+        <Stack.Screen name="Main" component={MainTabs} />
       </Stack.Navigator>
     </NavigationContainer>
   );

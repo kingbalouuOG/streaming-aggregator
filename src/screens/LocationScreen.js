@@ -3,12 +3,14 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   Pressable,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, typography, spacing, layout } from '../theme';
 
 const LocationScreen = ({ navigation }) => {
+  const insets = useSafeAreaInsets();
+
   const handleContinue = () => {
     // Navigate to PlatformsScreen
     // Region is hardcoded to 'GB' for UK market
@@ -16,7 +18,7 @@ const LocationScreen = ({ navigation }) => {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={[styles.safeArea, { paddingTop: insets.top }]}>
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
@@ -40,13 +42,13 @@ const LocationScreen = ({ navigation }) => {
         </View>
 
         {/* Continue Button */}
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: Math.max(spacing.xl, insets.bottom + spacing.md) }]}>
           <Pressable style={styles.button} onPress={handleContinue}>
             <Text style={[typography.button, styles.buttonText]}>Continue</Text>
           </Pressable>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 };
 
