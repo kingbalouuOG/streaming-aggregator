@@ -20,6 +20,7 @@ import { useTheme, colors, typography, spacing, layout } from '../theme';
 import GlassContainer from './GlassContainer';
 import ProgressiveImage from './ProgressiveImage';
 import { getContentWatchProviders } from '../api/tmdb';
+import { normalizePlatformName, mapProviderIdToCanonical, mapRentBuyToSubscription } from '../constants/platforms';
 
 // Platform logo mapping - all platforms
 const PLATFORM_LOGOS = {
@@ -80,19 +81,78 @@ const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
         if (!isMounted) return;
 
         if (response.success && response.data) {
-          // Get flatrate (subscription) providers and filter to user's platforms
-          const flatrateProviders = response.data.flatrate || [];
+          const { flatrate = [], rent = [], buy = [] } = response.data;
           const userPlatformIds = userPlatforms.map(p => typeof p === 'object' ? p.id : p);
 
-          // Filter to only show platforms the user has selected
-          const matchingPlatforms = flatrateProviders.filter(provider =>
-            userPlatformIds.includes(provider.provider_id)
-          ).map(provider => ({
-            id: provider.provider_id,
-            name: provider.provider_name,
-          }));
+          // Collect ALL platforms (subscription + rent/buy)
+          const allPlatforms = [];
+          const seenIds = new Set();
 
-          setPlatforms(matchingPlatforms);
+          // 1. Add subscription platforms first
+          flatrate.filter(provider => {
+            const canonicalId = mapProviderIdToCanonical(provider.provider_id);
+            return userPlatformIds.includes(canonicalId) || userPlatformIds.includes(provider.provider_id);
+          }).forEach(provider => {
+            const canonicalId = mapProviderIdToCanonical(provider.provider_id);
+            if (!seenIds.has(canonicalId)) {
+              seenIds.add(canonicalId);
+              allPlatforms.push({
+                id: canonicalId,
+                name: normalizePlatformName(provider.provider_name),
+                availableFor: 'subscription',
+              });
+            }
+          });
+
+          // 2. Add rent/buy platforms (deduplicated)
+          const paidPlatformMap = new Map();
+
+          rent.filter(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            return userPlatformIds.includes(mappedId) || userPlatformIds.includes(p.provider_id);
+          }).forEach(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            paidPlatformMap.set(mappedId, {
+              id: mappedId,
+              name: normalizePlatformName(p.provider_name),
+              availableFor: 'rent',
+            });
+          });
+
+          buy.filter(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            return userPlatformIds.includes(mappedId) || userPlatformIds.includes(p.provider_id);
+          }).forEach(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            const existing = paidPlatformMap.get(mappedId);
+            if (existing) {
+              paidPlatformMap.set(mappedId, { ...existing, availableFor: 'rent_buy' });
+            } else {
+              paidPlatformMap.set(mappedId, {
+                id: mappedId,
+                name: normalizePlatformName(p.provider_name),
+                availableFor: 'buy',
+              });
+            }
+          });
+
+          // 3. Merge rent/buy into allPlatforms
+          paidPlatformMap.forEach((paidPlatform) => {
+            const existingIndex = allPlatforms.findIndex(p => p.id === paidPlatform.id);
+            if (existingIndex >= 0) {
+              // Platform has both subscription AND rent/buy
+              allPlatforms[existingIndex] = {
+                ...allPlatforms[existingIndex],
+                hasRentBuy: true,
+                rentBuyType: paidPlatform.availableFor,
+              };
+            } else if (!seenIds.has(paidPlatform.id)) {
+              seenIds.add(paidPlatform.id);
+              allPlatforms.push(paidPlatform);
+            }
+          });
+
+          setPlatforms(allPlatforms);
         } else {
           setPlatforms([]);
         }
@@ -119,6 +179,11 @@ const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
   const displayPlatforms = platforms || [];
   const visiblePlatforms = displayPlatforms.slice(0, 3);
   const remainingCount = displayPlatforms.length > 3 ? displayPlatforms.length - 3 : 0;
+
+  // Detect if this is a paid title based on platforms having availableFor property
+  const isPaidTitle = displayPlatforms.some(p =>
+    p.availableFor && ['rent', 'buy', 'rent_buy'].includes(p.availableFor)
+  );
 
   // Animation state
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
@@ -182,6 +247,15 @@ const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
         ) : (
           <View style={[styles.poster, styles.placeholderPoster]}>
             <Text style={typography.caption}>No Image</Text>
+          </View>
+        )}
+
+        {/* Paid Badge - Top Left */}
+        {isPaidTitle && (
+          <View style={styles.paidBadgeContainer}>
+            <View style={styles.paidBadge}>
+              <Text style={styles.paidBadgeText}>£</Text>
+            </View>
           </View>
         )}
 
@@ -274,6 +348,24 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background.tertiary,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  paidBadgeContainer: {
+    position: 'absolute',
+    top: spacing.sm,
+    left: spacing.sm,
+  },
+  paidBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFD60A', // Amber/gold color for paid indicator
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  paidBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#000000', // Black text on amber
   },
   badgesContainer: {
     position: 'absolute',

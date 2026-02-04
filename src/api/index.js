@@ -21,6 +21,13 @@ export {
   getMetacriticScore,
 } from './omdb';
 
+// Export WatchMode API functions
+export {
+  getTitleSources,
+  getTitlePrices,
+  formatPrice,
+} from './watchmode';
+
 // Export cache functions
 export {
   getCachedData,
@@ -38,5 +45,6 @@ export {
 import TMDbAPI from './tmdb';
 import OMDbAPI from './omdb';
 import CacheAPI from './cache';
+import WatchModeAPI from './watchmode';
 
-export { TMDbAPI, OMDbAPI, CacheAPI };
+export { TMDbAPI, OMDbAPI, CacheAPI, WatchModeAPI };

@@ -26,6 +26,7 @@ import {
   setHomeGenres,
   clearAllData,
 } from '../storage/userPreferences';
+import { logError } from '../utils/errorHandler';
 import { UK_PROVIDERS_ARRAY } from '../constants/platforms';
 import { GENRE_NAMES } from '../constants/genres';
 
@@ -85,8 +86,8 @@ const ProfileScreen = () => {
   const [isGenreModalVisible, setIsGenreModalVisible] = useState(false);
   const [modalGenres, setModalGenres] = useState([]);
 
-  // Email validation regex
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  // Email validation regex - more robust pattern that validates domain extension
+  const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
 
   // Validators
   const validateName = (value) => {
@@ -186,8 +187,9 @@ const ProfileScreen = () => {
       // Load genres
       setOriginalGenres(genres);
       setSelectedGenres(genres);
-    } catch (error) {
-      console.error('[ProfileScreen] Error loading user data:', error);
+    } catch (err) {
+      logError(err, 'ProfileScreen loadUserData');
+      Alert.alert('Error', 'Failed to load profile data. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -350,8 +352,8 @@ const ProfileScreen = () => {
       setHasUnsavedChanges(false);
 
       Alert.alert('Success', 'Your profile has been updated.');
-    } catch (error) {
-      console.error('[ProfileScreen] Save error:', error);
+    } catch (err) {
+      logError(err, 'ProfileScreen handleSave');
       setSaveError('Failed to save changes. Please try again.');
     } finally {
       setIsSaving(false);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,11 +12,18 @@ import { useFocusEffect } from '@react-navigation/native';
 import { colors, typography, spacing, layout } from '../theme';
 import { getSelectedPlatforms } from '../storage/userPreferences';
 import { discoverMovies, discoverTV, searchMulti } from '../api/tmdb';
+import { DEFAULT_REGION } from '../constants/config';
 import ContentCard from '../components/ContentCard';
 import FilterChip from '../components/FilterChip';
 import SearchBar from '../components/SearchBar';
+import ErrorMessage from '../components/ErrorMessage';
+import { logError } from '../utils/errorHandler';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
+
+// Card sizing for FlatList optimization
+const CARD_MARGIN = 12; // spacing.md
+const getCardHeight = (cardWidth) => cardWidth * 1.5 + CARD_MARGIN * 2; // 2:3 aspect ratio + margins
 
 const FILTERS = {
   ALL: 'all',
@@ -34,10 +41,20 @@ const BrowseScreen = ({ navigation }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMorePages, setHasMorePages] = useState(true);
   const [debounceTimer, setDebounceTimer] = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     loadPlatformsAndContent();
   }, []);
+
+  // Cleanup debounce timer on unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      if (debounceTimer) {
+        clearTimeout(debounceTimer);
+      }
+    };
+  }, [debounceTimer]);
 
   // Reload platforms when screen gains focus (handles profile changes)
   useFocusEffect(
@@ -97,6 +114,7 @@ const BrowseScreen = ({ navigation }) => {
   const loadBrowseContent = async (page = 1) => {
     if (page === 1) {
       setIsLoading(true);
+      setError(null);
     } else {
       setIsLoadingMore(true);
     }
@@ -117,7 +135,7 @@ const BrowseScreen = ({ navigation }) => {
       // Fetch based on filter
       if (selectedFilter === FILTERS.ALL || selectedFilter === FILTERS.MOVIES) {
         const moviesResponse = await discoverMovies({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'popularity.desc',
           page,
@@ -136,7 +154,7 @@ const BrowseScreen = ({ navigation }) => {
 
       if (selectedFilter === FILTERS.ALL || selectedFilter === FILTERS.TV) {
         const tvResponse = await discoverTV({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'popularity.desc',
           page,
@@ -163,8 +181,11 @@ const BrowseScreen = ({ navigation }) => {
       }
 
       setHasMorePages(deduped.length > 0);
-    } catch (error) {
-      console.error('[BrowseScreen] Error loading content:', error);
+    } catch (err) {
+      logError(err, 'BrowseScreen loadBrowseContent');
+      if (page === 1) {
+        setError(err);
+      }
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);
@@ -180,6 +201,7 @@ const BrowseScreen = ({ navigation }) => {
 
     if (page === 1) {
       setIsLoading(true);
+      setError(null);
     } else {
       setIsLoadingMore(true);
     }
@@ -224,8 +246,11 @@ const BrowseScreen = ({ navigation }) => {
 
         setHasMorePages(enrichedResults.length > 0);
       }
-    } catch (error) {
-      console.error('[BrowseScreen] Error searching content:', error);
+    } catch (err) {
+      logError(err, 'BrowseScreen searchContent');
+      if (page === 1) {
+        setError(err);
+      }
     } finally {
       setIsLoading(false);
       setIsLoadingMore(false);
@@ -315,6 +340,14 @@ const BrowseScreen = ({ navigation }) => {
 
   // Calculate card width for 2-column grid
   const cardWidth = (SCREEN_WIDTH - spacing.lg * 2 - spacing.md) / 2;
+  const cardHeight = getCardHeight(cardWidth);
+
+  // Memoized getItemLayout for FlatList optimization
+  const getItemLayout = useMemo(() => (data, index) => ({
+    length: cardHeight,
+    offset: cardHeight * Math.floor(index / 2),
+    index,
+  }), [cardHeight]);
 
   // Render content card
   const renderItem = ({ item, index }) => {
@@ -349,6 +382,16 @@ const BrowseScreen = ({ navigation }) => {
   // Render empty state
   const renderEmpty = () => {
     if (isLoading) return null;
+
+    // Show error if present
+    if (error) {
+      return (
+        <ErrorMessage
+          error={error}
+          onRetry={() => searchQuery.trim() ? searchContent(searchQuery, 1) : loadBrowseContent(1)}
+        />
+      );
+    }
 
     return (
       <View style={styles.emptyContainer}>
@@ -414,7 +457,7 @@ const BrowseScreen = ({ navigation }) => {
         <FlatList
           data={content}
           renderItem={renderItem}
-          keyExtractor={(item, index) => `${item.type}-${item.id}-${index}`}
+          keyExtractor={(item) => `${item.type}-${item.id}`}
           numColumns={2}
           columnWrapperStyle={styles.row}
           contentContainerStyle={styles.listContent}
@@ -423,6 +466,12 @@ const BrowseScreen = ({ navigation }) => {
           onEndReached={handleLoadMore}
           onEndReachedThreshold={0.5}
           showsVerticalScrollIndicator={false}
+          // Performance optimizations
+          getItemLayout={getItemLayout}
+          initialNumToRender={8}
+          maxToRenderPerBatch={8}
+          windowSize={10}
+          removeClippedSubviews={true}
         />
       </View>
     </SafeAreaView>

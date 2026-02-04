@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,10 @@ import {
   Pressable,
   Image,
   RefreshControl,
+  Dimensions,
 } from 'react-native';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,12 +20,30 @@ import { colors, typography, spacing, layout } from '../theme';
 import { getSelectedPlatforms, getHomeGenres } from '../storage/userPreferences';
 import { GENRE_NAMES } from '../constants/genres';
 import { discoverMovies, discoverTV, getContentWatchProviders } from '../api/tmdb';
-import { mapRentBuyToSubscription } from '../constants/platforms';
+import { maintainCache } from '../api/cache';
+import { mapRentBuyToSubscription, normalizePlatformName, mapProviderIdToCanonical } from '../constants/platforms';
+import { DEFAULT_REGION, SPECIAL_GENRE_IDS, API_CONFIG, CACHE_CONFIG } from '../constants/config';
 import ContentCard from '../components/ContentCard';
 import FilterChip from '../components/FilterChip';
 import FilterModal from '../components/FilterModal';
+import ErrorMessage from '../components/ErrorMessage';
+import { throttle, ImageCacheManager } from '../utils/performanceUtils';
+import { logError } from '../utils/errorHandler';
 
-const DOCUMENTARY_GENRE_ID = 99;
+// Use centralized config constant
+const DOCUMENTARY_GENRE_ID = SPECIAL_GENRE_IDS.DOCUMENTARY;
+
+// Card sizing constants for FlatList optimization
+const CARD_WIDTH = SCREEN_WIDTH * 0.4;
+const CARD_MARGIN = 12; // spacing.md
+const ITEM_WIDTH = CARD_WIDTH + CARD_MARGIN;
+
+// getItemLayout for horizontal FlatList optimization
+const getHorizontalItemLayout = (data, index) => ({
+  length: ITEM_WIDTH,
+  offset: ITEM_WIDTH * index,
+  index,
+});
 
 // Default filter state
 const DEFAULT_FILTERS = {
@@ -41,12 +62,22 @@ const HomeScreen = ({ navigation }) => {
   const [highestRatedContent, setHighestRatedContent] = useState([]);
   const [recentContent, setRecentContent] = useState([]);
   const [homeGenres, setHomeGenres] = useState([]);
+  // Genre sections now store: { [genreId]: { data: [], page: 1, hasMore: true, isLoading: false } }
   const [genreSections, setGenreSections] = useState({});
+  // Pagination state for main sections
+  const [sectionPagination, setSectionPagination] = useState({
+    popular: { page: 1, hasMore: true, isLoading: false },
+    highestRated: { page: 1, hasMore: true, isLoading: false },
+    recent: { page: 1, hasMore: true, isLoading: false },
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Run cache maintenance on app start to prevent storage full errors
+    maintainCache(CACHE_CONFIG.MAX_ENTRIES).catch(err => console.warn('[HomeScreen] Cache maintenance failed:', err));
     loadContent();
   }, []);
 
@@ -83,6 +114,7 @@ const HomeScreen = ({ navigation }) => {
   // Load user's platforms and fetch content with cross-section deduplication
   const loadContent = async () => {
     setIsLoading(true);
+    setError(null);
     try {
       // Get user's selected platforms
       const platformIds = await getSelectedPlatforms();
@@ -106,6 +138,13 @@ const HomeScreen = ({ navigation }) => {
       popular.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
       setPopularContent(popular);
 
+      // Preload first batch of images for instant display (non-blocking)
+      const imagesToPreload = popular
+        .slice(0, 10)
+        .filter(item => item.poster_path)
+        .map(item => `https://image.tmdb.org/t/p/w342${item.poster_path}`);
+      ImageCacheManager.preload(imagesToPreload).catch(() => {});
+
       // 2. Highest Rated (exclude popular)
       const highestRated = await fetchHighestRatedContentWithExclusion(platformIds, exclusionSet);
       highestRated.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
@@ -118,8 +157,9 @@ const HomeScreen = ({ navigation }) => {
 
       // 4. Genre sections (exclude all above)
       await fetchAllGenreSections(platformIds, userGenres, exclusionSet);
-    } catch (error) {
-      console.error('[HomeScreen] Error loading content:', error);
+    } catch (err) {
+      logError(err, 'HomeScreen loadContent');
+      setError(err);
     } finally {
       setIsLoading(false);
     }
@@ -131,9 +171,14 @@ const HomeScreen = ({ navigation }) => {
 
     // Fetch genres sequentially to properly deduplicate across all genre sections
     for (const genreId of genreIds) {
-      const content = await fetchGenreSectionContent(platformIds, genreId, exclusionSet);
-      content.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
-      newGenreSections[genreId] = content;
+      const result = await fetchGenreSectionContentPaginated(platformIds, genreId, exclusionSet, 1, []);
+      result.data.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+      newGenreSections[genreId] = {
+        data: result.data,
+        page: 1,
+        hasMore: result.hasMore,
+        isLoading: false,
+      };
     }
 
     setGenreSections(newGenreSections);
@@ -144,12 +189,13 @@ const HomeScreen = ({ navigation }) => {
     return content.filter(item => !exclusionSet.has(`${item.type}-${item.id}`));
   };
 
-  // Fetch content for a single genre section (returns content instead of using setter)
-  const fetchGenreSectionContent = async (platformIds, genreId, exclusionSet = new Set()) => {
+  // Fetch content for a single genre section with pagination support
+  // Returns { data: [], hasMore: boolean }
+  const fetchGenreSectionContentPaginated = async (platformIds, genreId, exclusionSet = new Set(), page = 1, existingData = []) => {
     try {
       // If documentaries filter is active and this isn't the documentary genre, skip
       if (filters.contentType === 'documentaries' && genreId !== DOCUMENTARY_GENRE_ID) {
-        return [];
+        return { data: [], hasMore: false };
       }
 
       const allContent = [];
@@ -165,17 +211,20 @@ const HomeScreen = ({ navigation }) => {
         ? `${genreId},${genreParams.with_genres}`
         : genreId.toString();
 
+      let totalResults = 0;
+
       if (shouldFetchMovies()) {
         const moviesResponse = await discoverMovies({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           with_genres: combinedGenres,
           sort_by: 'popularity.desc',
-          page: 1,
+          page,
           ...ratingParams,
         });
 
         if (moviesResponse.success && moviesResponse.data.results) {
+          totalResults += moviesResponse.data.results.length;
           allContent.push(
             ...moviesResponse.data.results.map((item) => ({
               ...item,
@@ -188,15 +237,16 @@ const HomeScreen = ({ navigation }) => {
 
       if (shouldFetchTV()) {
         const tvResponse = await discoverTV({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           with_genres: combinedGenres,
           sort_by: 'popularity.desc',
-          page: 1,
+          page,
           ...ratingParams,
         });
 
         if (tvResponse.success && tvResponse.data.results) {
+          totalResults += tvResponse.data.results.length;
           allContent.push(
             ...tvResponse.data.results.map((item) => ({
               ...item,
@@ -209,21 +259,31 @@ const HomeScreen = ({ navigation }) => {
 
       const deduped = deduplicateContent(allContent);
 
-      // Filter out content already shown in previous sections
-      const withoutExcluded = filterExcluded(deduped, exclusionSet);
+      // Filter out content already in existing data AND exclusion set
+      const existingIds = new Set(existingData.map(item => `${item.type}-${item.id}`));
+      const withoutExcluded = deduped.filter(item => {
+        const key = `${item.type}-${item.id}`;
+        return !exclusionSet.has(key) && !existingIds.has(key);
+      });
 
       // Apply cost filter if active (fetch more to compensate for exclusions)
       const filtered = await applyCostFilter(withoutExcluded.slice(0, 40), platformIds);
-      return filtered.slice(0, 20);
+      const newItems = filtered.slice(0, 20);
+
+      // Determine if there are more results (TMDb typically returns 20 per page)
+      const hasMore = totalResults >= 15 && newItems.length > 0;
+
+      return { data: newItems, hasMore };
     } catch (error) {
-      console.error(`[HomeScreen] Error fetching genre ${genreId} content:`, error);
-      return [];
+      console.error(`[HomeScreen] Error fetching genre ${genreId} content page ${page}:`, error);
+      return { data: [], hasMore: false };
     }
   };
 
   // Handle pull-to-refresh (with same deduplication logic as loadContent)
   const handleRefresh = async () => {
     setIsRefreshing(true);
+    setError(null);
     try {
       const platformIds = await getSelectedPlatforms();
       setPlatforms(platformIds);
@@ -232,6 +292,13 @@ const HomeScreen = ({ navigation }) => {
         setIsRefreshing(false);
         return;
       }
+
+      // Reset pagination state
+      setSectionPagination({
+        popular: { page: 1, hasMore: true, isLoading: false },
+        highestRated: { page: 1, hasMore: true, isLoading: false },
+        recent: { page: 1, hasMore: true, isLoading: false },
+      });
 
       // Get user's selected home genres
       const userGenres = await getHomeGenres();
@@ -255,10 +322,11 @@ const HomeScreen = ({ navigation }) => {
       recent.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
       setRecentContent(recent);
 
-      // 4. Genre sections (exclude all above)
+      // 4. Genre sections (exclude all above) - pagination reset handled in fetchAllGenreSections
       await fetchAllGenreSections(platformIds, userGenres, exclusionSet);
-    } catch (error) {
-      console.error('[HomeScreen] Error refreshing content:', error);
+    } catch (err) {
+      logError(err, 'HomeScreen handleRefresh');
+      setError(err);
     } finally {
       setIsRefreshing(false);
     }
@@ -277,7 +345,7 @@ const HomeScreen = ({ navigation }) => {
 
       if (shouldFetchMovies()) {
         const moviesResponse = await discoverMovies({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'popularity.desc',
           page: 1,
@@ -298,7 +366,7 @@ const HomeScreen = ({ navigation }) => {
 
       if (shouldFetchTV()) {
         const tvResponse = await discoverTV({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'popularity.desc',
           page: 1,
@@ -345,7 +413,7 @@ const HomeScreen = ({ navigation }) => {
 
       if (shouldFetchMovies()) {
         const moviesResponse = await discoverMovies({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'release_date.desc',
           'release_date.lte': new Date().toISOString().split('T')[0],
@@ -367,7 +435,7 @@ const HomeScreen = ({ navigation }) => {
 
       if (shouldFetchTV()) {
         const tvResponse = await discoverTV({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'first_air_date.desc',
           'first_air_date.lte': new Date().toISOString().split('T')[0],
@@ -414,7 +482,7 @@ const HomeScreen = ({ navigation }) => {
 
       if (shouldFetchMovies()) {
         const moviesResponse = await discoverMovies({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'vote_average.desc',
           'vote_count.gte': 100, // Ensure reliable ratings
@@ -436,7 +504,7 @@ const HomeScreen = ({ navigation }) => {
 
       if (shouldFetchTV()) {
         const tvResponse = await discoverTV({
-          watch_region: 'GB',
+          watch_region: DEFAULT_REGION,
           with_watch_providers: platformsParam,
           sort_by: 'vote_average.desc',
           'vote_count.gte': 100, // Ensure reliable ratings
@@ -493,17 +561,14 @@ const HomeScreen = ({ navigation }) => {
   };
 
   // Apply cost filter by fetching watch providers and filtering
-  // Paid: Content with rent/buy availability on user's platforms
-  // Free: ALL OTHER RESULTS (everything that doesn't have rent/buy only)
+  // ALWAYS fetches ALL platforms (subscription + rent/buy) for unified display
+  // Paid: Content with ONLY rent/buy availability (no subscription)
+  // Free: Content that HAS subscription (even if also has rent/buy)
   const applyCostFilter = async (contentArray, platformIds) => {
-    // Skip if no cost filter applied
-    if (filters.costFilter === 'all') {
-      return contentArray;
-    }
-
     // Fetch watch providers for all items in parallel (with batching)
     const BATCH_SIZE = 10;
     const results = [];
+    const userPlatformIds = platformIds.map(p => typeof p === 'object' ? p.id : p);
 
     for (let i = 0; i < contentArray.length; i += BATCH_SIZE) {
       const batch = contentArray.slice(i, i + BATCH_SIZE);
@@ -513,41 +578,98 @@ const HomeScreen = ({ navigation }) => {
           const response = await getContentWatchProviders(item.id, mediaType);
 
           if (!response.success) {
-            // If we can't fetch data, include in "free" results, exclude from "paid"
+            // If we can't fetch data, include with null platforms
             return {
-              item,
-              isPaid: false,
-              platforms: null,
+              item: { ...item, platforms: null },
+              hasSubscription: false,
+              hasPaidOnly: false,
             };
           }
 
           const { flatrate = [], rent = [], buy = [] } = response.data;
 
-          // Check if any of the user's platforms have rent/buy availability
-          const userPlatformIds = platformIds.map(p => typeof p === 'object' ? p.id : p);
+          // Collect ALL platforms for this item (subscription + rent/buy)
+          const allPlatforms = [];
+          const seenIds = new Set();
 
-          // Get matching rent/buy platforms (using mapping to match store IDs to subscription IDs)
-          // e.g., Amazon Video (10) maps to Amazon Prime Video (9)
-          const matchingPaid = [...rent, ...buy].filter(p => {
-            const mappedId = mapRentBuyToSubscription(p.provider_id);
-            return userPlatformIds.includes(mappedId) || userPlatformIds.includes(p.provider_id);
+          // 1. Add subscription platforms first
+          flatrate.filter(p => {
+            const canonicalId = mapProviderIdToCanonical(p.provider_id);
+            return userPlatformIds.includes(canonicalId) || userPlatformIds.includes(p.provider_id);
+          }).forEach(p => {
+            const canonicalId = mapProviderIdToCanonical(p.provider_id);
+            if (!seenIds.has(canonicalId)) {
+              seenIds.add(canonicalId);
+              allPlatforms.push({
+                id: canonicalId,
+                name: normalizePlatformName(p.provider_name),
+                availableFor: 'subscription',
+              });
+            }
           });
 
-          // Item is "paid" if it has rent/buy availability on user's platforms
-          const isPaid = matchingPaid.length > 0;
+          // 2. Process rent/buy platforms (deduplicated)
+          const paidPlatformMap = new Map();
 
-          // Pre-load platforms for paid items (show the mapped subscription platform ID)
-          // This ensures Amazon Video (10) shows as Amazon Prime (9) badge
-          const platforms = isPaid
-            ? matchingPaid.map(p => {
-                const mappedId = mapRentBuyToSubscription(p.provider_id);
-                return { id: mappedId, name: p.provider_name };
-              })
-            : null; // Let ContentCard lazy-load for free items
+          // Process rent platforms
+          rent.filter(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            return userPlatformIds.includes(mappedId) || userPlatformIds.includes(p.provider_id);
+          }).forEach(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            paidPlatformMap.set(mappedId, {
+              id: mappedId,
+              name: normalizePlatformName(p.provider_name),
+              availableFor: 'rent',
+            });
+          });
+
+          // Process buy platforms (merge with existing rent if present)
+          buy.filter(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            return userPlatformIds.includes(mappedId) || userPlatformIds.includes(p.provider_id);
+          }).forEach(p => {
+            const mappedId = mapRentBuyToSubscription(p.provider_id);
+            const existing = paidPlatformMap.get(mappedId);
+            if (existing) {
+              paidPlatformMap.set(mappedId, {
+                ...existing,
+                availableFor: 'rent_buy',
+              });
+            } else {
+              paidPlatformMap.set(mappedId, {
+                id: mappedId,
+                name: normalizePlatformName(p.provider_name),
+                availableFor: 'buy',
+              });
+            }
+          });
+
+          // 3. Merge rent/buy into allPlatforms (mark if platform has both subscription AND rent/buy)
+          paidPlatformMap.forEach((paidPlatform) => {
+            const existingIndex = allPlatforms.findIndex(p => p.id === paidPlatform.id);
+            if (existingIndex >= 0) {
+              // Same platform has BOTH subscription AND rent/buy
+              allPlatforms[existingIndex] = {
+                ...allPlatforms[existingIndex],
+                hasRentBuy: true,
+                rentBuyType: paidPlatform.availableFor,
+              };
+            } else if (!seenIds.has(paidPlatform.id)) {
+              // Platform only available for rent/buy, not subscription
+              seenIds.add(paidPlatform.id);
+              allPlatforms.push(paidPlatform);
+            }
+          });
+
+          // Determine item classification
+          const hasSubscription = allPlatforms.some(p => p.availableFor === 'subscription');
+          const hasPaidOnly = !hasSubscription && paidPlatformMap.size > 0;
 
           return {
-            item: { ...item, platforms },
-            isPaid,
+            item: { ...item, platforms: allPlatforms.length > 0 ? allPlatforms : null },
+            hasSubscription,
+            hasPaidOnly,
           };
         })
       );
@@ -556,15 +678,18 @@ const HomeScreen = ({ navigation }) => {
 
     // Filter based on cost type
     if (filters.costFilter === 'paid') {
-      // Paid: only items with rent/buy availability
+      // Show items that are PAID-ONLY (no subscription option available)
       return results
-        .filter(({ isPaid }) => isPaid)
+        .filter(({ hasPaidOnly }) => hasPaidOnly)
+        .map(({ item }) => item);
+    } else if (filters.costFilter === 'free') {
+      // Show items that HAVE subscription (even if they also have rent/buy)
+      return results
+        .filter(({ hasSubscription }) => hasSubscription)
         .map(({ item }) => item);
     } else {
-      // Free: ALL OTHER RESULTS (everything that's not paid)
-      return results
-        .filter(({ isPaid }) => !isPaid)
-        .map(({ item }) => item);
+      // 'all' - show everything with unified platform data
+      return results.map(({ item }) => item);
     }
   };
 
@@ -634,15 +759,86 @@ const HomeScreen = ({ navigation }) => {
 
   // Handle content card press
   const handleCardPress = (item) => {
+    // Determine if this is a paid title based on platforms having availableFor property
+    const isPaidTitle = item.platforms?.some(p =>
+      p.availableFor && ['rent', 'buy', 'rent_buy'].includes(p.availableFor)
+    );
+
     navigation.navigate('Detail', {
       itemId: item.id,
       type: item.type,
+      isPaidTitle: isPaidTitle || false,
+      preloadedPlatforms: isPaidTitle ? item.platforms : null,
     });
   };
 
-  // Render content section
-  const renderContentSection = (title, data) => {
+  // Build exclusion set from all currently displayed content
+  const buildExclusionSet = useCallback(() => {
+    const exclusionSet = new Set();
+    popularContent.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+    highestRatedContent.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+    recentContent.forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+    Object.values(genreSections).forEach(section => {
+      (section.data || []).forEach(item => exclusionSet.add(`${item.type}-${item.id}`));
+    });
+    return exclusionSet;
+  }, [popularContent, highestRatedContent, recentContent, genreSections]);
+
+  // Handle loading more content for a genre section (horizontal scroll pagination)
+  const handleLoadMoreForGenre = useCallback(async (genreId) => {
+    const section = genreSections[genreId];
+    if (!section || section.isLoading || !section.hasMore) return;
+
+    // Set loading state
+    setGenreSections(prev => ({
+      ...prev,
+      [genreId]: { ...prev[genreId], isLoading: true }
+    }));
+
+    const nextPage = section.page + 1;
+    const exclusionSet = buildExclusionSet();
+
+    try {
+      const result = await fetchGenreSectionContentPaginated(
+        platforms,
+        genreId,
+        exclusionSet,
+        nextPage,
+        section.data
+      );
+
+      setGenreSections(prev => ({
+        ...prev,
+        [genreId]: {
+          data: [...(prev[genreId]?.data || []), ...result.data],
+          page: nextPage,
+          hasMore: result.hasMore && result.data.length > 0,
+          isLoading: false,
+        }
+      }));
+    } catch (error) {
+      console.error(`[HomeScreen] Error loading more for genre ${genreId}:`, error);
+      setGenreSections(prev => ({
+        ...prev,
+        [genreId]: { ...prev[genreId], isLoading: false }
+      }));
+    }
+  }, [platforms, genreSections, buildExclusionSet]);
+
+  // Throttled version to prevent rapid API calls
+  const throttledLoadMore = useMemo(
+    () => throttle((genreId) => handleLoadMoreForGenre(genreId), 500),
+    [handleLoadMoreForGenre]
+  );
+
+  // Render content section with optimizations and optional pagination
+  const renderContentSection = (title, data, genreId = null) => {
     if (!data || data.length === 0) return null;
+
+    // Get pagination state for genre sections
+    const sectionState = genreId ? genreSections[genreId] : null;
+    const isLoadingMore = sectionState?.isLoading || false;
+    const hasMore = sectionState?.hasMore !== false;
 
     return (
       <View style={styles.section}>
@@ -657,9 +853,32 @@ const HomeScreen = ({ navigation }) => {
               userPlatforms={platforms}
             />
           )}
-          keyExtractor={(item, index) => `${item.type}-${item.id}-${index}`}
+          keyExtractor={(item) => `${item.type}-${item.id}`}
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.horizontalList}
+          // Performance optimizations
+          getItemLayout={getHorizontalItemLayout}
+          initialNumToRender={5}
+          maxToRenderPerBatch={5}
+          windowSize={5}
+          removeClippedSubviews={true}
+          // Horizontal scroll pagination for genre sections
+          onEndReached={genreId && hasMore && !isLoadingMore ? () => throttledLoadMore(genreId) : undefined}
+          onEndReachedThreshold={0.5}
+          // Loading indicator at end of list
+          ListFooterComponent={
+            genreId ? (
+              isLoadingMore ? (
+                <View style={styles.loadMoreContainer}>
+                  <ActivityIndicator size="small" color={colors.accent.primary} />
+                </View>
+              ) : !hasMore && data.length >= 20 ? (
+                <View style={styles.endOfListContainer}>
+                  <Text style={styles.endOfListText}>•</Text>
+                </View>
+              ) : null
+            ) : null
+          }
         />
       </View>
     );
@@ -693,17 +912,20 @@ const HomeScreen = ({ navigation }) => {
     );
   }
 
+  // Error state
+  if (error && !isLoading && popularContent.length === 0) {
+    return (
+      <View style={[styles.safeArea, { paddingTop: insets.top }]}>
+        <ErrorMessage error={error} onRetry={loadContent} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.safeArea}>
       <View style={styles.container}>
         {/* Header */}
-        <View style={[styles.header, { paddingTop: insets.top }]}>
-          <Image
-            source={require('../../assets/videx-logo-v1.png')}
-            style={styles.headerLogo}
-            resizeMode="contain"
-          />
-        </View>
+        <View style={[styles.header, { paddingTop: insets.top }]} />
 
         {/* Filter Chips */}
         <ScrollView
@@ -760,12 +982,13 @@ const HomeScreen = ({ navigation }) => {
           {renderContentSection('Popular on Your Services', popularContent)}
           {renderContentSection('Highest Rated', highestRatedContent)}
           {renderContentSection('Recently Added', recentContent)}
-          {/* Dynamic Genre Sections */}
+          {/* Dynamic Genre Sections with horizontal scroll pagination */}
           {homeGenres.map((genreId) => (
             <React.Fragment key={`genre-${genreId}`}>
               {renderContentSection(
                 GENRE_NAMES[genreId] || `Genre ${genreId}`,
-                genreSections[genreId] || []
+                genreSections[genreId]?.data || [],
+                genreId
               )}
             </React.Fragment>
           ))}
@@ -854,6 +1077,22 @@ const styles = StyleSheet.create({
   },
   horizontalList: {
     paddingHorizontal: spacing.lg,
+  },
+  loadMoreContainer: {
+    width: 60,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  endOfListContainer: {
+    width: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+  },
+  endOfListText: {
+    color: colors.text.tertiary,
+    fontSize: 16,
   },
   loadingContainer: {
     flex: 1,

@@ -1,15 +1,20 @@
 # StreamFinder - Streaming Aggregator
 
-A mobile streaming aggregator that combines content from multiple UK platforms (Netflix, Amazon Prime, Apple TV+, Disney+, and more) into a single browsing interface.
+A mobile streaming aggregator that combines content from multiple UK platforms (Netflix, Amazon Prime, Apple TV+, Disney+, Now TV, BBC iPlayer, ITVX, Channel 4, Paramount+, Sky Go) into a single browsing interface.
 
 ## Tech Stack
 
-- **React Native** with **Expo**
-- **React Navigation** for navigation
+- **React Native 0.81** with **Expo 54**
+- **React Navigation** (Bottom Tabs + Native Stack)
 - **Axios** for API calls
 - **AsyncStorage** for local data persistence
-- **TMDb API** for content metadata
-- **OMDB API** for ratings
+- **Expo SecureStore** for secure storage
+- **Custom Satoshi Font** for typography
+
+### APIs
+- **TMDb API** for content metadata and streaming availability
+- **OMDB API** for Rotten Tomatoes and IMDb ratings
+- **WatchMode API** for rent/buy pricing information
 
 ## Getting Started
 
@@ -21,6 +26,7 @@ A mobile streaming aggregator that combines content from multiple UK platforms (
 4. Get API keys:
    - [TMDb API Key](https://www.themoviedb.org/settings/api)
    - [OMDB API Key](http://www.omdbapi.com/apikey.aspx)
+   - [WatchMode API Key](https://api.watchmode.com/)
 
 ### Installation
 
@@ -43,6 +49,7 @@ cp .env.example .env
 ```
 TMDB_API_KEY=your_tmdb_api_key_here
 OMDB_API_KEY=your_omdb_api_key_here
+WATCHMODE_API_KEY=your_watchmode_api_key_here
 ```
 
 ### Running the App
@@ -63,40 +70,79 @@ Then:
 ```
 streaming-aggregator/
 ├── src/
-│   ├── api/              # API clients (TMDb, OMDB)
-│   ├── screens/          # Screen components
-│   ├── components/       # Reusable components
+│   ├── api/              # API clients (TMDb, OMDB, WatchMode, Cache)
+│   ├── screens/          # 8 screen components
+│   ├── components/       # 23 reusable UI components
 │   ├── navigation/       # Navigation configuration
 │   ├── storage/          # AsyncStorage helpers
-│   ├── constants/        # Colors, typography, platforms, genres
-│   └── theme/            # Design system implementation
-├── App.js               # Main entry point
+│   ├── constants/        # Config, colors, platforms, genres
+│   ├── context/          # React Context (Theme)
+│   ├── theme/            # Design system (dark/light themes)
+│   └── utils/            # Error handling, performance utilities
+├── assets/
+│   ├── fonts/            # Satoshi font family
+│   └── platform-logos/   # Streaming service logos
+├── docs/
+│   └── design-system/    # Figma export tokens and specs
+├── App.js                # Main entry point
 └── package.json
 ```
 
-## Features (V1)
+## Features
 
-- Streamlined onboarding (name, email, platform selection)
-- Browse content from multiple platforms
-- Filter by content type (Movies, TV, Documentaries)
-- Search across all services
-- Detailed content view with ratings
-- Glass morphism dark theme UI
+- **Onboarding Flow**: Name, region, platform selection, genre preferences
+- **Home Screen**: Popular, Highest Rated, Recently Added + custom genre sections
+- **Browse & Search**: Filter by content type, search across all services
+- **Detail View**: Full content info with ratings, cast, and platform availability
+- **Profile Management**: Edit details, manage platforms, customize genres
+- **Theme Support**: Dark/Light mode with system preference detection
+- **Offline Caching**: Intelligent caching with TTL management
+- **Error Handling**: User-friendly error messages with retry capability
 
 ## Design System
 
-- Dark theme with glass morphism effects
-- Pure black backgrounds (#000000)
-- Accent colors: #FF375F (primary), #00D9FF (secondary)
-- System fonts (SF Pro Display on iOS, Roboto on Android)
+### Theme
+- **Dark Theme**: Pure black (#000000) for OLED optimization
+- **Light Theme**: Clean white (#FFFFFF) with subtle borders
 
-## API Configuration
+### Colors
+| Token | Dark | Usage |
+|-------|------|-------|
+| Accent Primary | #FF6B35 | Coral - buttons, highlights |
+| Accent Light | #FF8C42 | Hover states |
+| Success | #30D158 | Confirmations |
+| Warning | #FFD60A | Alerts |
+| Error | #FF453A | Errors |
 
-The app uses:
-- **TMDb API** for content metadata and streaming availability
-- **OMDB API** for Rotten Tomatoes and IMDb ratings
+### Typography
+- **Font Family**: Satoshi (Light, Regular, Medium)
+- **Type Scale**: h1 (34px), h2 (28px), h3 (22px), h4 (20px), body (17px), caption (15px), metadata (13px)
 
-UK region code: `GB`
+### Spacing
+- Base unit: 4px
+- Scale: xs (4), sm (8), md (12), lg (16), xl (24), xxl (32), xxxl (48)
+
+### Components (23 total)
+- **Layout**: GlassContainer, GlassHeader, BottomSheet
+- **Content**: ContentCard, ServiceCard, PlatformChip, PlatformBadge, ProfileAvatar
+- **Filters**: SearchBar, FilterChip, FilterModal, FilterSwitch, RatingSlider
+- **Display**: RatingBadge, ProgressIndicator, ProgressiveImage, SkeletonLoader, Toast
+- **Feedback**: ErrorBoundary, ErrorMessage, EmptyState, EditableField
+
+## Design Export
+
+Design tokens and component specifications for Figma/Pencil are available in:
+- `docs/design-system/tokens.json` - Machine-readable design tokens
+- `docs/design-system/component-specs.md` - Component specifications
+
+## Documentation
+
+- `THEME_SYSTEM.md` - Theme architecture and usage
+- `API_CLIENTS_GUIDE.md` - API integration documentation
+- `CACHING_GUIDE.md` - Caching strategy documentation
+- `ERROR_HANDLING.md` - Error handling patterns
+- `STORAGE_GUIDE.md` - Data persistence guide
+- `PERFORMANCE_OPTIMIZATION.md` - Performance best practices
 
 ## License
 

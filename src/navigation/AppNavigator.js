@@ -1,9 +1,10 @@
 /**
  * AppNavigator - Main navigation structure
  * Switches between OnboardingStack and MainTabs based on onboarding completion
+ * Uses lazy loading for main screens to improve initial load performance
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { ActivityIndicator, View, StyleSheet, Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
@@ -13,18 +14,26 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { useTheme, typography } from '../theme';
 import { hasCompletedOnboarding } from '../storage/userPreferences';
+import { initMemoryWarningHandler } from '../utils/performanceUtils';
 
-// Onboarding Screens
+// Onboarding Screens (static imports - critical path, should load instantly)
 import WelcomeScreen from '../screens/WelcomeScreen';
 import LocationScreen from '../screens/LocationScreen';
 import PlatformsScreen from '../screens/PlatformsScreen';
 import GenrePreferencesScreen from '../screens/GenrePreferencesScreen';
 
-// Main App Screens
-import HomeScreen from '../screens/HomeScreen';
-import BrowseScreen from '../screens/BrowseScreen';
-import ProfileScreen from '../screens/ProfileScreen';
-import DetailScreen from '../screens/DetailScreen';
+// Main App Screens (lazy loaded for better initial performance)
+const HomeScreen = lazy(() => import('../screens/HomeScreen'));
+const BrowseScreen = lazy(() => import('../screens/BrowseScreen'));
+const ProfileScreen = lazy(() => import('../screens/ProfileScreen'));
+const DetailScreen = lazy(() => import('../screens/DetailScreen'));
+
+// Loading fallback component for lazy-loaded screens
+const ScreenLoadingFallback = ({ colors }) => (
+  <View style={[styles.loadingContainer, { backgroundColor: colors?.background?.primary || '#0D0D0D' }]}>
+    <ActivityIndicator size="large" color={colors?.accent?.primary || '#6366F1'} />
+  </View>
+);
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -101,61 +110,67 @@ const OnboardingStack = () => {
   );
 };
 
-// Home Tab Stack Navigator
+// Home Tab Stack Navigator (with Suspense for lazy-loaded screens)
 const HomeStack = () => {
   const { colors } = useTheme();
   const glassHeaderOptions = getGlassHeaderOptions(colors);
 
   return (
-    <Stack.Navigator screenOptions={glassHeaderOptions}>
-      <Stack.Screen
-        name="HomeMain"
-        component={HomeScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="Detail"
-        component={DetailScreen}
-        options={{ title: 'Details' }}
-      />
-    </Stack.Navigator>
+    <Suspense fallback={<ScreenLoadingFallback colors={colors} />}>
+      <Stack.Navigator screenOptions={glassHeaderOptions}>
+        <Stack.Screen
+          name="HomeMain"
+          component={HomeScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Detail"
+          component={DetailScreen}
+          options={{ title: 'Details' }}
+        />
+      </Stack.Navigator>
+    </Suspense>
   );
 };
 
-// Browse Tab Stack Navigator
+// Browse Tab Stack Navigator (with Suspense for lazy-loaded screens)
 const BrowseStack = () => {
   const { colors } = useTheme();
   const glassHeaderOptions = getGlassHeaderOptions(colors);
 
   return (
-    <Stack.Navigator screenOptions={glassHeaderOptions}>
-      <Stack.Screen
-        name="BrowseMain"
-        component={BrowseScreen}
-        options={{ headerShown: false }}
-      />
-      <Stack.Screen
-        name="Detail"
-        component={DetailScreen}
-        options={{ title: 'Details' }}
-      />
-    </Stack.Navigator>
+    <Suspense fallback={<ScreenLoadingFallback colors={colors} />}>
+      <Stack.Navigator screenOptions={glassHeaderOptions}>
+        <Stack.Screen
+          name="BrowseMain"
+          component={BrowseScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Detail"
+          component={DetailScreen}
+          options={{ title: 'Details' }}
+        />
+      </Stack.Navigator>
+    </Suspense>
   );
 };
 
-// Profile Tab Stack Navigator
+// Profile Tab Stack Navigator (with Suspense for lazy-loaded screens)
 const ProfileStack = () => {
   const { colors } = useTheme();
   const glassHeaderOptions = getGlassHeaderOptions(colors);
 
   return (
-    <Stack.Navigator screenOptions={glassHeaderOptions}>
-      <Stack.Screen
-        name="ProfileMain"
-        component={ProfileScreen}
-        options={{ title: 'Profile' }}
-      />
-    </Stack.Navigator>
+    <Suspense fallback={<ScreenLoadingFallback colors={colors} />}>
+      <Stack.Navigator screenOptions={glassHeaderOptions}>
+        <Stack.Screen
+          name="ProfileMain"
+          component={ProfileScreen}
+          options={{ title: 'Profile' }}
+        />
+      </Stack.Navigator>
+    </Suspense>
   );
 };
 
@@ -230,6 +245,9 @@ const AppNavigator = () => {
 
   useEffect(() => {
     checkOnboardingStatus();
+    // Initialize memory warning handler for performance optimization
+    const cleanup = initMemoryWarningHandler();
+    return cleanup;
   }, []);
 
   const checkOnboardingStatus = async () => {

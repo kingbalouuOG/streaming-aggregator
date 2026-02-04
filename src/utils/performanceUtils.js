@@ -2,6 +2,7 @@
  * Performance Optimization Utilities
  */
 
+import { Image, AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { clearCache, getCacheStats } from '../api/cache';
 
@@ -164,6 +165,30 @@ export const handleMemoryWarning = async () => {
 };
 
 /**
+ * Initialize memory warning listener
+ * Call this once at app startup
+ */
+let memoryWarningSubscription = null;
+
+export const initMemoryWarningHandler = () => {
+  if (memoryWarningSubscription) return;
+
+  memoryWarningSubscription = AppState.addEventListener('memoryWarning', async () => {
+    console.warn('[Performance] Memory warning - clearing oldest 30% of cache');
+    const { clearOldestPercentage } = require('../api/cache');
+    await clearOldestPercentage(30);
+    ImageCacheManager.clear();
+  });
+
+  return () => {
+    if (memoryWarningSubscription) {
+      memoryWarningSubscription.remove();
+      memoryWarningSubscription = null;
+    }
+  };
+};
+
+/**
  * Image cache manager
  */
 export const ImageCacheManager = {
@@ -246,6 +271,7 @@ export default {
   getItemLayout,
   calculateInitialNumToRender,
   handleMemoryWarning,
+  initMemoryWarningHandler,
   ImageCacheManager,
   PerformanceMonitor,
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -15,56 +15,101 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, typography, spacing, layout } from '../theme';
 import { getMovieDetails, getTVDetails } from '../api/tmdb';
 import { getRatings } from '../api/omdb';
+import { getTitlePrices, formatPrice } from '../api/watchmode';
+import { normalizePlatformName, mapProviderIdToCanonical } from '../constants/platforms';
 import GlassContainer from '../components/GlassContainer';
 import RatingBadge from '../components/RatingBadge';
 import PlatformChip from '../components/PlatformChip';
+import ErrorMessage from '../components/ErrorMessage';
+import { logError } from '../utils/errorHandler';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 const DetailScreen = ({ route, navigation }) => {
-  const { itemId, type } = route.params || {};
+  const {
+    itemId,
+    type,
+    isPaidTitle = false,
+    preloadedPlatforms = null,
+  } = route.params || {};
 
   const [content, setContent] = useState(null);
   const [ratings, setRatings] = useState(null);
+  const [prices, setPrices] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   useEffect(() => {
-    loadContentDetails();
-  }, [itemId, type]);
+    // Cancellation flag to prevent state updates after unmount
+    let isCancelled = false;
 
-  const loadContentDetails = async () => {
-    setIsLoading(true);
-    try {
-      // Fetch TMDb details with additional data
-      let tmdbResponse;
-      if (type === 'movie') {
-        tmdbResponse = await getMovieDetails(itemId, {
-          append_to_response: 'credits,watch/providers,external_ids',
-        });
-      } else {
-        tmdbResponse = await getTVDetails(itemId, {
-          append_to_response: 'credits,watch/providers,external_ids',
-        });
-      }
+    const loadContentDetails = async () => {
+      setIsLoading(true);
+      setError(null);
 
-      if (tmdbResponse.success) {
-        setContent(tmdbResponse.data);
+      try {
+        // Fetch TMDb details with additional data
+        let tmdbResponse;
+        if (type === 'movie') {
+          tmdbResponse = await getMovieDetails(itemId, {
+            append_to_response: 'credits,watch/providers,external_ids',
+          });
+        } else {
+          tmdbResponse = await getTVDetails(itemId, {
+            append_to_response: 'credits,watch/providers,external_ids',
+          });
+        }
 
-        // Fetch OMDB ratings if IMDb ID is available
-        const imdbId = tmdbResponse.data.external_ids?.imdb_id;
-        if (imdbId) {
-          const ratingsResponse = await getRatings(imdbId, type);
-          if (ratingsResponse.success) {
-            setRatings(ratingsResponse.data);
+        // Check if request was cancelled before updating state
+        if (isCancelled) return;
+
+        if (tmdbResponse.success) {
+          setContent(tmdbResponse.data);
+
+          // Fetch OMDB ratings if IMDb ID is available
+          const imdbId = tmdbResponse.data.external_ids?.imdb_id;
+          if (imdbId && !isCancelled) {
+            const ratingsResponse = await getRatings(imdbId, type);
+            if (!isCancelled && ratingsResponse.success) {
+              setRatings(ratingsResponse.data);
+            }
           }
+
+          // Fetch prices from WatchMode for paid titles
+          if (isPaidTitle && !isCancelled) {
+            try {
+              const pricesData = await getTitlePrices(itemId, type);
+              if (!isCancelled && pricesData) {
+                setPrices(pricesData);
+              }
+            } catch (priceError) {
+              // Non-critical error, just log it
+              console.log('[DetailScreen] Could not fetch prices:', priceError.message);
+            }
+          }
+        } else if (!isCancelled) {
+          setError(new Error('Failed to load content details'));
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          logError(err, 'DetailScreen loadContentDetails');
+          setError(err);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
         }
       }
-    } catch (error) {
-      console.error('[DetailScreen] Error loading content:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+    };
+
+    loadContentDetails();
+
+    // Cleanup function to cancel pending state updates
+    return () => {
+      isCancelled = true;
+    };
+  }, [itemId, type, isPaidTitle, retryKey]);
 
   const getBackdropUrl = (path) => {
     return path ? `https://image.tmdb.org/t/p/w1280${path}` : null;
@@ -100,18 +145,96 @@ const DetailScreen = ({ route, navigation }) => {
     return content.adult ? '18+' : 'PG';
   };
 
-  const getUKPlatforms = () => {
-    if (!content || !content['watch/providers']?.results?.GB) return [];
+  // Memoize UK platforms calculation to avoid recomputing on every render
+  const ukPlatforms = useMemo(() => {
+    if (!content) return [];
 
-    const providers = content['watch/providers'].results.GB;
-    const flatrate = providers.flatrate || [];
+    // Use a Map to deduplicate platforms by ID and merge availability types
+    const platformMap = new Map();
 
-    return flatrate.map((provider) => ({
-      id: provider.provider_id,
-      name: provider.provider_name,
-      logo: provider.logo_path,
-    }));
-  };
+    // 1. Get subscription platforms from TMDb watch/providers
+    if (content['watch/providers']?.results?.GB) {
+      const providers = content['watch/providers'].results.GB;
+      const flatrate = providers.flatrate || [];
+
+      flatrate.forEach((provider) => {
+        const normalizedName = normalizePlatformName(provider.provider_name);
+        // Map variant IDs to canonical IDs (e.g., All 4 → Channel 4)
+        const canonicalId = mapProviderIdToCanonical(provider.provider_id);
+
+        // Use normalized name as key to group variants like "Netflix Standard with Ads"
+        const existingByName = Array.from(platformMap.values()).find(
+          p => p.name === normalizedName
+        );
+
+        if (!existingByName) {
+          platformMap.set(canonicalId, {
+            id: canonicalId,
+            name: normalizedName,
+            logo: provider.logo_path,
+            availableFor: 'subscription',
+          });
+        }
+      });
+    }
+
+    // 2. Merge rent/buy platforms from preloaded data
+    if (preloadedPlatforms && preloadedPlatforms.length > 0) {
+      preloadedPlatforms.forEach((platform) => {
+        const normalizedName = normalizePlatformName(platform.name);
+
+        // Find price for this platform from WatchMode data
+        let price = null;
+        let priceType = platform.availableFor;
+
+        if (prices) {
+          const searchName = normalizedName.toLowerCase().split(' ')[0];
+          const rentMatch = prices.rent?.find(p =>
+            normalizePlatformName(p.name)?.toLowerCase().includes(searchName)
+          );
+          const buyMatch = prices.buy?.find(p =>
+            normalizePlatformName(p.name)?.toLowerCase().includes(searchName)
+          );
+
+          if (rentMatch?.price) {
+            price = formatPrice(rentMatch.price);
+            priceType = 'rent';
+          } else if (buyMatch?.price) {
+            price = formatPrice(buyMatch.price);
+            priceType = 'buy';
+          }
+        }
+
+        // Check if platform already exists (as subscription)
+        const existingEntry = Array.from(platformMap.entries()).find(
+          ([_, p]) => p.name === normalizedName
+        );
+
+        if (existingEntry) {
+          // Merge: platform has subscription AND rent/buy options
+          const [existingId, existingPlatform] = existingEntry;
+          platformMap.set(existingId, {
+            ...existingPlatform,
+            hasSubscription: true,
+            hasRentBuy: true,
+            rentBuyType: platform.availableFor,
+            price,
+          });
+        } else {
+          // Add as rent/buy only platform
+          platformMap.set(platform.id, {
+            id: platform.id,
+            name: normalizedName,
+            availableFor: platform.availableFor,
+            price,
+            priceType,
+          });
+        }
+      });
+    }
+
+    return Array.from(platformMap.values());
+  }, [content, preloadedPlatforms, prices]);
 
   const getCast = () => {
     if (!content?.credits?.cast) return [];
@@ -151,12 +274,25 @@ const DetailScreen = ({ route, navigation }) => {
     );
   }
 
-  if (!content) {
+  // Error state - show error with retry option
+  if (error || !content) {
     return (
       <View style={styles.loadingContainer}>
-        <Text style={[typography.h3, styles.errorText]}>
-          Failed to load content
-        </Text>
+        <Pressable
+          style={styles.backButtonError}
+          onPress={() => navigation.goBack()}
+        >
+          <GlassContainer
+            style={styles.backButtonInner}
+            borderRadius={layout.borderRadius.circle}
+          >
+            <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
+          </GlassContainer>
+        </Pressable>
+        <ErrorMessage
+          error={error || new Error('Failed to load content')}
+          onRetry={() => setRetryKey(prev => prev + 1)}
+        />
       </View>
     );
   }
@@ -165,7 +301,6 @@ const DetailScreen = ({ route, navigation }) => {
   const posterUrl = getPosterUrl(content.poster_path);
   const title = content.title || content.name;
   const overview = content.overview;
-  const ukPlatforms = getUKPlatforms();
   const cast = getCast();
 
   return (
@@ -263,17 +398,66 @@ const DetailScreen = ({ route, navigation }) => {
             </View>
           )}
 
-          {/* Available On */}
+          {/* Available On - Unified view showing subscription + rent/buy */}
           {ukPlatforms.length > 0 && (
             <View style={styles.platformsSection}>
-              <Text style={[typography.h4, styles.platformsLabel]}>
-                Available on:
-              </Text>
-              <View style={styles.platformsChips}>
-                {ukPlatforms.map((platform) => (
-                  <PlatformChip key={platform.id} name={platform.name} />
-                ))}
-              </View>
+              {/* Subscription platforms */}
+              {ukPlatforms.some(p => p.availableFor === 'subscription' || p.hasSubscription) && (
+                <>
+                  <Text style={[typography.h4, styles.platformsLabel]}>
+                    Available on:
+                  </Text>
+                  <View style={styles.platformsChips}>
+                    {ukPlatforms
+                      .filter(p => p.availableFor === 'subscription' || p.hasSubscription)
+                      .map((platform) => (
+                        <PlatformChip
+                          key={`sub-${platform.id}`}
+                          name={platform.name}
+                          costLabel={null}
+                        />
+                      ))}
+                  </View>
+                </>
+              )}
+
+              {/* Rent/Buy platforms */}
+              {ukPlatforms.some(p =>
+                ['rent', 'buy', 'rent_buy'].includes(p.availableFor)
+              ) && (
+                <>
+                  <Text style={[typography.h4, styles.platformsLabel, styles.rentBuyLabel]}>
+                    Available to Rent/Buy:
+                  </Text>
+                  <View style={styles.platformsChips}>
+                    {ukPlatforms
+                      .filter(p =>
+                        ['rent', 'buy', 'rent_buy'].includes(p.availableFor)
+                      )
+                      .map((platform) => {
+                        // Determine cost label
+                        let costLabel = null;
+                        const rentBuyType = platform.rentBuyType || platform.availableFor;
+
+                        if (rentBuyType === 'rent') {
+                          costLabel = platform.price ? `${platform.price} rent` : 'Rent';
+                        } else if (rentBuyType === 'buy') {
+                          costLabel = platform.price ? `${platform.price} buy` : 'Buy';
+                        } else if (rentBuyType === 'rent_buy') {
+                          costLabel = platform.price ? `From ${platform.price}` : 'Rent/Buy';
+                        }
+
+                        return (
+                          <PlatformChip
+                            key={`paid-${platform.id}`}
+                            name={platform.name}
+                            costLabel={costLabel}
+                          />
+                        );
+                      })}
+                  </View>
+                </>
+              )}
             </View>
           )}
 
@@ -383,6 +567,9 @@ const styles = StyleSheet.create({
   platformsLabel: {
     marginBottom: spacing.md,
   },
+  rentBuyLabel: {
+    marginTop: spacing.md,
+  },
   platformsChips: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -431,6 +618,12 @@ const styles = StyleSheet.create({
   },
   errorText: {
     color: colors.text.secondary,
+  },
+  backButtonError: {
+    position: 'absolute',
+    top: spacing.xl,
+    left: spacing.lg,
+    zIndex: 10,
   },
 });
 
