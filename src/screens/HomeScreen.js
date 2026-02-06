@@ -24,11 +24,14 @@ import { maintainCache } from '../api/cache';
 import { mapRentBuyToSubscription, normalizePlatformName, mapProviderIdToCanonical } from '../constants/platforms';
 import { DEFAULT_REGION, SPECIAL_GENRE_IDS, API_CONFIG, CACHE_CONFIG } from '../constants/config';
 import ContentCard from '../components/ContentCard';
+import RecommendationCard from '../components/RecommendationCard';
 import FilterChip from '../components/FilterChip';
 import FilterModal from '../components/FilterModal';
 import ErrorMessage from '../components/ErrorMessage';
 import { throttle, ImageCacheManager } from '../utils/performanceUtils';
 import { logError } from '../utils/errorHandler';
+import { generateRecommendations } from '../utils/recommendationEngine';
+import { addToWatchlist } from '../storage/watchlist';
 
 // Use centralized config constant
 const DOCUMENTARY_GENRE_ID = SPECIAL_GENRE_IDS.DOCUMENTARY;
@@ -58,6 +61,8 @@ const HomeScreen = ({ navigation }) => {
   const insets = useSafeAreaInsets();
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [platforms, setPlatforms] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
+  const [isLoadingRecommendations, setIsLoadingRecommendations] = useState(false);
   const [popularContent, setPopularContent] = useState([]);
   const [highestRatedContent, setHighestRatedContent] = useState([]);
   const [recentContent, setRecentContent] = useState([]);
@@ -74,16 +79,46 @@ const HomeScreen = ({ navigation }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [filterModalVisible, setFilterModalVisible] = useState(false);
   const [error, setError] = useState(null);
+  // Focus key to trigger watchlist status refresh in child cards
+  const [focusKey, setFocusKey] = useState(0);
 
   useEffect(() => {
     // Run cache maintenance on app start to prevent storage full errors
     maintainCache(CACHE_CONFIG.MAX_ENTRIES).catch(err => console.warn('[HomeScreen] Cache maintenance failed:', err));
     loadContent();
+    // Load recommendations in parallel (non-blocking)
+    loadRecommendations();
   }, []);
 
-  // Reload platforms when screen gains focus (handles profile changes)
+  // Load personalized recommendations
+  const loadRecommendations = async () => {
+    try {
+      setIsLoadingRecommendations(true);
+      const recs = await generateRecommendations(platforms, DEFAULT_REGION);
+      setRecommendations(recs);
+    } catch (error) {
+      console.error('[HomeScreen] Error loading recommendations:', error);
+      // Silently fail - recommendations are not critical
+    } finally {
+      setIsLoadingRecommendations(false);
+    }
+  };
+
+  // Handle recommendation card press
+  const handleRecommendationPress = (item) => {
+    navigation.navigate('Detail', {
+      itemId: item.id,
+      type: item.type,
+      isPaidTitle: false,
+    });
+  };
+
+  // Reload platforms and refresh watchlist state when screen gains focus
   useFocusEffect(
     useCallback(() => {
+      // Increment focusKey to trigger watchlist status refresh in child cards
+      setFocusKey(prev => prev + 1);
+
       const reloadPlatforms = async () => {
         try {
           const platformIds = await getSelectedPlatforms();
@@ -324,6 +359,9 @@ const HomeScreen = ({ navigation }) => {
 
       // 4. Genre sections (exclude all above) - pagination reset handled in fetchAllGenreSections
       await fetchAllGenreSections(platformIds, userGenres, exclusionSet);
+
+      // 5. Refresh recommendations (parallel, non-blocking)
+      loadRecommendations();
     } catch (err) {
       logError(err, 'HomeScreen handleRefresh');
       setError(err);
@@ -772,6 +810,21 @@ const HomeScreen = ({ navigation }) => {
     });
   };
 
+  // Handle bookmark press on content cards
+  const handleBookmarkPress = async (item) => {
+    try {
+      const metadata = {
+        title: item.title || item.name,
+        posterPath: item.poster_path,
+        genreIds: item.genre_ids || [],
+        voteAverage: item.vote_average,
+      };
+      await addToWatchlist(item.id, item.media_type || item.type || 'movie', metadata, 'want_to_watch');
+    } catch (error) {
+      console.error('[HomeScreen] Error adding to watchlist:', error);
+    }
+  };
+
   // Build exclusion set from all currently displayed content
   const buildExclusionSet = useCallback(() => {
     const exclusionSet = new Set();
@@ -850,7 +903,9 @@ const HomeScreen = ({ navigation }) => {
             <ContentCard
               item={item}
               onPress={handleCardPress}
+              onBookmarkPress={handleBookmarkPress}
               userPlatforms={platforms}
+              focusKey={focusKey}
             />
           )}
           keyExtractor={(item) => `${item.type}-${item.id}`}
@@ -979,6 +1034,31 @@ const HomeScreen = ({ navigation }) => {
             />
           }
         >
+          {/* For You - Personalized Recommendations */}
+          {recommendations.length > 0 && (
+            <View style={styles.section}>
+              <Text style={[typography.h3, styles.sectionTitle]}>For You</Text>
+              <FlatList
+                horizontal
+                data={recommendations.slice(0, 10)}
+                renderItem={({ item }) => (
+                  <RecommendationCard
+                    item={item}
+                    onPress={handleRecommendationPress}
+                    focusKey={focusKey}
+                  />
+                )}
+                keyExtractor={(item) => `rec-${item.type}-${item.id}`}
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.horizontalList}
+                getItemLayout={getHorizontalItemLayout}
+                initialNumToRender={5}
+                maxToRenderPerBatch={5}
+                windowSize={5}
+                removeClippedSubviews={true}
+              />
+            </View>
+          )}
           {renderContentSection('Popular on Your Services', popularContent)}
           {renderContentSection('Highest Rated', highestRatedContent)}
           {renderContentSection('Recently Added', recentContent)}

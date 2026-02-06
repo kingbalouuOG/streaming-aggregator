@@ -212,6 +212,85 @@
 - [ ] Smooth scrolling
 - [ ] No memory leaks
 
+### 2.4 WatchlistScreen
+
+#### Layout & UI
+- [ ] Header "My Watchlist" displays
+- [ ] Tab selector shows "Want to Watch" and "Watched"
+- [ ] Grid/list view toggle works
+- [ ] Item count displays correctly
+- [ ] Cards render in correct variant (grid/list)
+
+#### Tab Filtering
+- [ ] "Want to Watch" tab shows correct items
+- [ ] "Watched" tab shows correct items
+- [ ] Tab counts update correctly
+- [ ] Switching tabs updates list
+
+#### Item Management
+- [ ] Long press shows remove option
+- [ ] Remove updates list immediately
+- [ ] Removed items don't reappear
+- [ ] Status badge shows correct state
+
+#### Empty States
+- [ ] Empty watchlist shows:
+  - [ ] Icon displays
+  - [ ] "Your watchlist is empty" message
+  - [ ] "Browse Content" action button
+- [ ] Empty tab shows appropriate message
+
+#### Performance
+- [ ] Smooth scrolling in grid mode
+- [ ] Smooth scrolling in list mode
+- [ ] Memory stable with 50+ items
+
+### 2.5 Watchlist Button (DetailScreen)
+
+#### States
+- [ ] Not in watchlist: Outline bookmark icon
+- [ ] Want to Watch: Filled bookmark with checkmark
+- [ ] Watched: Checkmark with rating display
+
+#### Interactions
+- [ ] Tap adds to watchlist (not in list)
+- [ ] Tap opens status picker (in list)
+- [ ] Status change reflects immediately
+- [ ] Rating selection works (thumbs up/down/neutral)
+- [ ] "Remove from Watchlist" works
+
+#### Feedback
+- [ ] Toast shows on add
+- [ ] Toast shows on status change
+- [ ] Toast shows on remove
+
+### 2.6 Recommendations (HomeScreen)
+
+#### "For You" Section
+- [ ] Section appears when watchlist has items
+- [ ] Section hidden with empty watchlist
+- [ ] Recommendations display correctly
+- [ ] Horizontal scrolling works
+- [ ] Cards show "reason" text
+
+#### Recommendation Quality
+- [ ] Recommendations reflect genre preferences
+- [ ] "Because you like [genre]" shows
+- [ ] "Similar to [title]" shows for similar content
+- [ ] No duplicate recommendations
+
+#### Interactions
+- [ ] Dismiss (X) button works
+- [ ] Dismissed items don't reappear
+- [ ] Quick add to watchlist works
+- [ ] Card tap navigates to detail
+
+#### Cache Behavior
+- [ ] Recommendations cache (6 hours)
+- [ ] Pull-to-refresh regenerates
+- [ ] Cache invalidates on watchlist change
+- [ ] Diversity: max 3 per genre in top 10
+
 ---
 
 ## 3. Edge Case Testing
@@ -257,6 +336,17 @@
 - [ ] Empty state shows
 - [ ] Helpful message displays
 - [ ] No crash or blank screen
+
+#### Watchlist Empty States
+- [ ] Empty watchlist shows CTA to browse
+- [ ] Empty "Want to Watch" tab handled
+- [ ] Empty "Watched" tab handled
+- [ ] Recommendations hidden with empty watchlist
+
+#### Recommendations Empty States
+- [ ] No recommendations with empty watchlist
+- [ ] All recommendations dismissed handled
+- [ ] Cache expiry handled gracefully
 
 ### 3.3 API Error Scenarios
 
@@ -533,12 +623,15 @@
 ### 8.1 After Updates
 - [ ] All onboarding steps work
 - [ ] HomeScreen loads correctly
+- [ ] "For You" recommendations show
 - [ ] Search functionality works
 - [ ] DetailScreen displays data
+- [ ] Watchlist button states correct
+- [ ] WatchlistScreen loads correctly
 - [ ] Filtering works
 - [ ] Platform selection works
 - [ ] Images load
-- [ ] Cache works
+- [ ] Cache works (API + recommendations)
 - [ ] Error handling intact
 
 ### 8.2 After Dependencies Update
@@ -621,6 +714,45 @@ describe('Error Handler', () => {
     expect(type).toBe(ErrorType.NETWORK);
   });
 });
+
+// Watchlist tests
+describe('Watchlist Storage', () => {
+  test('addToWatchlist stores item correctly', async () => {
+    const result = await addToWatchlist(123, 'movie', { title: 'Test' });
+    expect(result.success).toBe(true);
+  });
+
+  test('getWatchlist returns stored items', async () => {
+    const watchlist = await getWatchlist();
+    expect(watchlist.items).toBeDefined();
+    expect(Array.isArray(watchlist.items)).toBe(true);
+  });
+
+  test('setWatchlistStatus updates item', async () => {
+    await setWatchlistStatus(123, 'movie', 'watched');
+    const item = await getWatchlistItem(123, 'movie');
+    expect(item.status).toBe('watched');
+  });
+});
+
+// Recommendation engine tests
+describe('Recommendation Engine', () => {
+  test('calculateGenreAffinities returns scores', async () => {
+    const affinities = await calculateGenreAffinities();
+    expect(typeof affinities).toBe('object');
+  });
+
+  test('getTopGenres returns sorted genres', () => {
+    const affinities = { 28: 5, 35: 3, 18: 7 };
+    const top = getTopGenres(affinities, 2);
+    expect(top[0].genreId).toBe(18); // Highest score first
+  });
+
+  test('generateRecommendations returns results', async () => {
+    const recs = await generateRecommendations([], 'GB');
+    expect(Array.isArray(recs)).toBe(true);
+  });
+});
 ```
 
 ### Integration Tests
@@ -636,6 +768,24 @@ describe('Navigation', () => {
 describe('Search', () => {
   test('search returns results', async () => {
     // Test search functionality end-to-end
+  });
+});
+
+// Watchlist flow tests
+describe('Watchlist Flow', () => {
+  test('add → update status → rate → remove flow', async () => {
+    // Test complete watchlist lifecycle
+    await addToWatchlist(550, 'movie', { title: 'Fight Club' });
+    await setWatchlistStatus(550, 'movie', 'watched');
+    await setWatchlistRating(550, 'movie', 1);
+    await removeFromWatchlist(550, 'movie');
+  });
+});
+
+// Recommendations flow tests
+describe('Recommendations Flow', () => {
+  test('recommendations update after watchlist changes', async () => {
+    // Add items, verify recs update
   });
 });
 ```

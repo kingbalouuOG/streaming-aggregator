@@ -16,11 +16,15 @@ AppNavigator (Root)
     └── MainTabs (Bottom Tab Navigator)
         ├── HomeTab
         │   └── HomeStack
-        │       ├── HomeMain
+        │       ├── HomeMain (with "For You" recommendations)
         │       └── Detail
         ├── BrowseTab
         │   └── BrowseStack
         │       ├── BrowseMain
+        │       └── Detail
+        ├── WatchlistTab
+        │   └── WatchlistStack
+        │       ├── WatchlistMain (Want to Watch / Watched tabs)
         │       └── Detail
         └── ProfileTab
             └── ProfileStack
@@ -79,6 +83,7 @@ const glassHeaderOptions = {
 **Tab Icons**: Uses Ionicons with filled/outline variants
 - **Home**: `home` / `home-outline`
 - **Browse**: `search` / `search-outline`
+- **Watchlist**: `bookmark` / `bookmark-outline`
 - **Profile**: `person` / `person-outline`
 
 **Tab Bar Styling**:
@@ -107,8 +112,9 @@ All placeholder screens created with consistent structure:
 - **[PlatformsScreen.js](src/screens/PlatformsScreen.js)** - Platform selection
 
 ### Main App Screens
-- **[HomeScreen.js](src/screens/HomeScreen.js)** - Trending content
+- **[HomeScreen.js](src/screens/HomeScreen.js)** - Trending content + "For You" recommendations
 - **[BrowseScreen.js](src/screens/BrowseScreen.js)** - Search and filters
+- **[WatchlistScreen.js](src/screens/WatchlistScreen.js)** - User's watchlist (Want to Watch / Watched)
 - **[ProfileScreen.js](src/screens/ProfileScreen.js)** - User preferences
 - **[DetailScreen.js](src/screens/DetailScreen.js)** - Content details (shared)
 
@@ -149,8 +155,15 @@ export default function App() {
 ### Returning User Flow
 1. App starts → Checks onboarding status
 2. Completed → Shows MainTabs
-3. User can navigate between Home, Browse, Profile
+3. User can navigate between Home, Browse, Watchlist, Profile
 4. Tapping content → Navigates to DetailScreen within current tab's stack
+
+### Watchlist Flow
+1. User browses content in Home or Browse
+2. Opens DetailScreen → Taps "Add to Watchlist" button
+3. Navigates to Watchlist tab → Sees item in "Want to Watch"
+4. User can mark as "Watched" and add rating (thumbs up/down)
+5. Recommendations on HomeScreen update based on watchlist
 
 ### Detail Screen Navigation
 ```javascript
@@ -190,17 +203,22 @@ if (isOnboardingComplete === null) {
 - `react-native-safe-area-context` ✅
 - `react-native-screens` ✅
 
-## Next Steps
+## Implemented Features
 
-The navigation structure is ready for screen implementation:
+All screens have been built with full functionality:
 
-1. **Onboarding Screens**: Build Welcome, Location, Platforms with actual UI
-2. **Home Screen**: Implement trending content sections with TMDb API
-3. **Browse Screen**: Add search bar and filters
-4. **Detail Screen**: Show movie/TV details with ratings and streaming providers
-5. **Profile Screen**: Display user preferences and settings
+1. **Onboarding Screens**: Welcome, Location, Platforms with region/platform selection
+2. **Home Screen**: Trending content sections + "For You" personalized recommendations
+3. **Browse Screen**: Search bar and genre/platform filters
+4. **Watchlist Screen**: Want to Watch / Watched tabs with grid/list views
+5. **Detail Screen**: Movie/TV details with ratings, providers, and watchlist controls
+6. **Profile Screen**: User preferences, theme toggle, and settings
 
-All screens are currently placeholders ready to be built with theme system integration.
+### Key Integrations
+
+- **Watchlist**: Local storage with sync-ready schema
+- **Recommendations**: Genre-based (70%) + Similar content (30%) algorithm
+- **Theme System**: Full dark/light mode support across all screens
 
 ---
 
@@ -208,7 +226,9 @@ All screens are currently placeholders ready to be built with theme system integ
 
 The app now has:
 - Conditional onboarding flow
-- Bottom tab navigation with nested stacks
+- 4-tab bottom navigation (Home, Browse, Watchlist, Profile)
+- Nested stack navigators per tab with shared DetailScreen
 - Dark theme with glass morphism styling
-- Proper loading states
-- Ready for screen implementation
+- Lazy loading with React Suspense for performance
+- Watchlist integration with recommendation engine
+- Proper loading states and error handling

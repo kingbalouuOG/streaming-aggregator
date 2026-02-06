@@ -25,6 +25,7 @@ import GenrePreferencesScreen from '../screens/GenrePreferencesScreen';
 // Main App Screens (lazy loaded for better initial performance)
 const HomeScreen = lazy(() => import('../screens/HomeScreen'));
 const BrowseScreen = lazy(() => import('../screens/BrowseScreen'));
+const WatchlistScreen = lazy(() => import('../screens/WatchlistScreen'));
 const ProfileScreen = lazy(() => import('../screens/ProfileScreen'));
 const DetailScreen = lazy(() => import('../screens/DetailScreen'));
 
@@ -174,6 +175,29 @@ const ProfileStack = () => {
   );
 };
 
+// Watchlist Tab Stack Navigator (with Suspense for lazy-loaded screens)
+const WatchlistStack = () => {
+  const { colors } = useTheme();
+  const glassHeaderOptions = getGlassHeaderOptions(colors);
+
+  return (
+    <Suspense fallback={<ScreenLoadingFallback colors={colors} />}>
+      <Stack.Navigator screenOptions={glassHeaderOptions}>
+        <Stack.Screen
+          name="WatchlistMain"
+          component={WatchlistScreen}
+          options={{ headerShown: false }}
+        />
+        <Stack.Screen
+          name="Detail"
+          component={DetailScreen}
+          options={{ title: 'Details' }}
+        />
+      </Stack.Navigator>
+    </Suspense>
+  );
+};
+
 // Main Tabs Navigator
 const MainTabs = () => {
   const { colors } = useTheme();
@@ -211,6 +235,8 @@ const MainTabs = () => {
             iconName = focused ? 'home' : 'home-outline';
           } else if (route.name === 'BrowseTab') {
             iconName = focused ? 'search' : 'search-outline';
+          } else if (route.name === 'WatchlistTab') {
+            iconName = focused ? 'bookmark' : 'bookmark-outline';
           } else if (route.name === 'ProfileTab') {
             iconName = focused ? 'person' : 'person-outline';
           }
@@ -228,6 +254,11 @@ const MainTabs = () => {
         name="BrowseTab"
         component={BrowseStack}
         options={{ title: 'Browse' }}
+      />
+      <Tab.Screen
+        name="WatchlistTab"
+        component={WatchlistStack}
+        options={{ title: 'Watchlist' }}
       />
       <Tab.Screen
         name="ProfileTab"

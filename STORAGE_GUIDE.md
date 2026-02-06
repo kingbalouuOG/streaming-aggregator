@@ -682,13 +682,199 @@ interface UserPreferences {
 
 ---
 
+---
+
+## Watchlist Storage
+
+The watchlist system stores user's saved content with status tracking and ratings.
+
+### Storage Keys
+
+```javascript
+{
+  WATCHLIST: '@app_watchlist',
+  RECOMMENDATIONS: '@app_recommendations',
+  DISMISSED: '@app_dismissed_recommendations'
+}
+```
+
+### Watchlist Item Schema
+
+```javascript
+{
+  id: 550,                           // TMDb ID
+  type: 'movie',                     // 'movie' or 'tv'
+  status: 'watched',                 // 'want_to_watch' or 'watched'
+  rating: 1,                         // -1 (dislike), 0 (neutral), 1 (like)
+  addedAt: 1706554800000,           // When added
+  updatedAt: 1706558400000,         // Last modified
+  watchedAt: 1706558400000,         // When marked watched (null if want_to_watch)
+  metadata: {
+    title: 'Fight Club',
+    posterPath: '/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg',
+    backdropPath: '/fCayJrkfRaCRCTh8GqN30f8oyQF.jpg',
+    overview: 'A ticking-time-bomb insomniac...',
+    releaseDate: '1999-10-15',
+    voteAverage: 8.4,
+    genreIds: [18, 53],
+    runtime: 139,
+    numberOfSeasons: null
+  },
+  // Sync-ready fields
+  syncStatus: 'local_only',         // 'synced', 'pending_sync', 'local_only'
+  lastSyncedAt: null,
+  version: 1
+}
+```
+
+### Watchlist Functions
+
+```javascript
+import {
+  getWatchlist,
+  getWatchlistItem,
+  addToWatchlist,
+  updateWatchlistItem,
+  removeFromWatchlist,
+  setWatchlistStatus,
+  setWatchlistRating,
+  getWatchlistByStatus,
+  getWatchlistStats,
+  isInWatchlist,
+} from './src/storage/watchlist';
+
+// Add item to watchlist
+await addToWatchlist(550, 'movie', {
+  title: 'Fight Club',
+  posterPath: '/pB8BM7pdSp6B6Ih7QZ4DrQ3PmJK.jpg',
+  genreIds: [18, 53],
+  voteAverage: 8.4,
+}, 'want_to_watch');
+
+// Check if in watchlist
+const inList = await isInWatchlist(550, 'movie'); // true
+
+// Change status to watched
+await setWatchlistStatus(550, 'movie', 'watched');
+
+// Rate the content
+await setWatchlistRating(550, 'movie', 1); // thumbs up
+
+// Get all watched items
+const watched = await getWatchlistByStatus('watched');
+
+// Get watchlist statistics
+const stats = await getWatchlistStats();
+// { total: 12, wantToWatch: 5, watched: 7, liked: 4, disliked: 1, movies: 8, tvShows: 4 }
+
+// Remove from watchlist
+await removeFromWatchlist(550, 'movie');
+```
+
+---
+
+## Recommendations Storage
+
+The recommendations system caches generated recommendations and tracks dismissed items.
+
+### Recommendation Cache Schema
+
+```javascript
+{
+  recommendations: [/* RecommendationItem[] */],
+  generatedAt: 1706554800000,
+  expiresAt: 1706576400000,    // +6 hours
+  basedOn: {
+    genreAffinities: { 18: 5, 53: 3 },
+    likedItemIds: [550, 680]
+  },
+  schemaVersion: 1
+}
+```
+
+### Dismissed Item Schema
+
+```javascript
+{
+  items: [
+    { id: 123, type: 'movie', dismissedAt: 1706554800000 }
+  ],
+  schemaVersion: 1
+}
+```
+
+### Recommendations Functions
+
+```javascript
+import {
+  getCachedRecommendations,
+  setCachedRecommendations,
+  isRecommendationCacheValid,
+  clearRecommendationCache,
+  dismissRecommendation,
+  getDismissedIds,
+  cleanExpiredDismissals,
+} from './src/storage/recommendations';
+
+// Check if cache is valid (< 6 hours old)
+const isValid = await isRecommendationCacheValid();
+
+// Dismiss a recommendation (won't show for 30 days)
+await dismissRecommendation(123, 'movie');
+
+// Get dismissed IDs for filtering
+const dismissed = await getDismissedIds();
+// Set { 'movie-123', 'tv-456' }
+
+// Clean expired dismissals (> 30 days old)
+await cleanExpiredDismissals();
+```
+
+---
+
+## Recommendation Engine
+
+Generate personalized recommendations using the recommendation engine.
+
+```javascript
+import { generateRecommendations } from './src/utils/recommendationEngine';
+
+// Generate recommendations (uses cache if valid)
+const recommendations = await generateRecommendations(platformIds, 'GB');
+
+// Each recommendation includes:
+// {
+//   id: 456,
+//   type: 'movie',
+//   score: 78.5,
+//   reason: 'Because you like Drama',
+//   source: 'genre',
+//   metadata: { title: '...', posterPath: '...', ... }
+// }
+```
+
+### Algorithm Overview
+
+1. **Genre Affinity (70%)**: Scores genres based on watchlist items
+   - Watched + thumbs up: +3 points
+   - Watched + neutral: +1 point
+   - Watched + thumbs down: -1 point
+   - Want to watch: +1 point
+
+2. **Similar Content (30%)**: Fetches similar content for top 3 liked items
+
+3. **Diversity Filter**: Max 3 items per genre in top 10 results
+
+---
+
 ## Summary
 
-✅ **Simple API** - 7 functions for all storage needs
+✅ **Simple API** - 7 functions for user preferences, 10+ for watchlist
 ✅ **Validated inputs** - Prevents invalid data
 ✅ **Debug logging** - Track all operations
 ✅ **Error handling** - Graceful failures
-✅ **Minimal storage** - ~1 KB per user
+✅ **Minimal storage** - ~1 KB per user (preferences), variable for watchlist
+✅ **Sync-ready** - Schema includes sync metadata for future backend integration
 ✅ **Production ready** - No additional configuration
 
 The storage system handles all V1 requirements without complexity! 🚀

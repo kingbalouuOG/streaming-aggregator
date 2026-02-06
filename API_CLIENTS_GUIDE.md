@@ -246,6 +246,108 @@ if (result.success) {
 
 ---
 
+#### getSimilarMovies(movieId, page)
+Get movies similar to a specific movie. Useful for recommendations.
+
+**Parameters:**
+- `movieId`: TMDb movie ID (required)
+- `page`: Page number (default: 1)
+
+**Example:**
+```javascript
+import { getSimilarMovies } from './src/api/tmdb';
+
+const result = await getSimilarMovies(550, 1); // Similar to Fight Club
+
+if (result.success) {
+  const similarMovies = result.data.results;
+}
+```
+
+**Response:**
+```javascript
+{
+  success: true,
+  data: {
+    page: 1,
+    results: [
+      {
+        id: 807,
+        title: "Se7en",
+        poster_path: "/path.jpg",
+        overview: "Description...",
+        vote_average: 8.3,
+        genre_ids: [18, 80, 53]
+      }
+    ],
+    total_pages: 5,
+    total_results: 100
+  }
+}
+```
+
+---
+
+#### getSimilarTV(tvId, page)
+Get TV shows similar to a specific show.
+
+**Parameters:**
+- `tvId`: TMDb TV show ID (required)
+- `page`: Page number (default: 1)
+
+**Example:**
+```javascript
+import { getSimilarTV } from './src/api/tmdb';
+
+const result = await getSimilarTV(1396, 1); // Similar to Breaking Bad
+
+if (result.success) {
+  const similarShows = result.data.results;
+}
+```
+
+---
+
+#### getMovieRecommendations(movieId, page)
+Get TMDb's algorithmic recommendations for a movie.
+
+**Parameters:**
+- `movieId`: TMDb movie ID (required)
+- `page`: Page number (default: 1)
+
+**Example:**
+```javascript
+import { getMovieRecommendations } from './src/api/tmdb';
+
+const result = await getMovieRecommendations(550, 1);
+
+if (result.success) {
+  const recommendations = result.data.results;
+}
+```
+
+---
+
+#### getTVRecommendations(tvId, page)
+Get TMDb's algorithmic recommendations for a TV show.
+
+**Parameters:**
+- `tvId`: TMDb TV show ID (required)
+- `page`: Page number (default: 1)
+
+**Example:**
+```javascript
+import { getTVRecommendations } from './src/api/tmdb';
+
+const result = await getTVRecommendations(1396, 1);
+
+if (result.success) {
+  const recommendations = result.data.results;
+}
+```
+
+---
+
 #### getWatchProviders(region, mediaType)
 Get list of available streaming providers.
 
@@ -604,9 +706,21 @@ console.log('OMDB:', omdbTest.success ? '✅' : '❌');
 // Import individual functions
 import {
   discoverMovies,
+  discoverTV,
   getMovieDetails,
-  getRatings
-} from './src/api';
+  getTVDetails,
+  searchMulti,
+  getSimilarMovies,
+  getSimilarTV,
+  getMovieRecommendations,
+  getTVRecommendations,
+  getWatchProviders,
+  getContentWatchProviders,
+  buildPosterUrl,
+  buildBackdropUrl,
+} from './src/api/tmdb';
+
+import { getRatings } from './src/api/omdb';
 
 // Or import from specific files
 import { discoverMovies } from './src/api/tmdb';

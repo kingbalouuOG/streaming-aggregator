@@ -16,11 +16,13 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme, colors, typography, spacing, layout } from '../theme';
 import GlassContainer from './GlassContainer';
 import ProgressiveImage from './ProgressiveImage';
 import { getContentWatchProviders } from '../api/tmdb';
 import { normalizePlatformName, mapProviderIdToCanonical, mapRentBuyToSubscription } from '../constants/platforms';
+import { isInWatchlist, addToWatchlist, removeFromWatchlist } from '../storage/watchlist';
 
 // Platform logo mapping - all platforms
 const PLATFORM_LOGOS = {
@@ -39,7 +41,7 @@ const PLATFORM_LOGOS = {
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.4; // 40% of screen width
 
-const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
+const ContentCard = ({ item, onPress, onBookmarkPress, userPlatforms = [], focusKey = 0 }) => {
   const { colors } = useTheme();
   const {
     id,
@@ -53,6 +55,9 @@ const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
   // State for lazy-loaded platform data
   const [platforms, setPlatforms] = useState(initialPlatforms);
   const [isLoadingPlatforms, setIsLoadingPlatforms] = useState(initialPlatforms === null);
+
+  // State for watchlist/bookmark status
+  const [isBookmarked, setIsBookmarked] = useState(false);
 
   const displayTitle = title || name;
   const posterUrl = poster_path
@@ -175,15 +180,23 @@ const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
     };
   }, [id, type, initialPlatforms, userPlatforms]);
 
+  // Check if item is in watchlist on mount and when focusKey changes
+  useEffect(() => {
+    const checkWatchlistStatus = async () => {
+      try {
+        const inList = await isInWatchlist(id, type);
+        setIsBookmarked(inList);
+      } catch (error) {
+        console.error('[ContentCard] Error checking watchlist status:', error);
+      }
+    };
+    checkWatchlistStatus();
+  }, [id, type, focusKey]);
+
   // Platform badge logic: show max 3, then "+N" for additional
   const displayPlatforms = platforms || [];
   const visiblePlatforms = displayPlatforms.slice(0, 3);
   const remainingCount = displayPlatforms.length > 3 ? displayPlatforms.length - 3 : 0;
-
-  // Detect if this is a paid title based on platforms having availableFor property
-  const isPaidTitle = displayPlatforms.some(p =>
-    p.availableFor && ['rent', 'buy', 'rent_buy'].includes(p.availableFor)
-  );
 
   // Animation state
   const scaleAnim = React.useRef(new Animated.Value(1)).current;
@@ -250,13 +263,43 @@ const ContentCard = ({ item, onPress, userPlatforms = [] }) => {
           </View>
         )}
 
-        {/* Paid Badge - Top Left */}
-        {isPaidTitle && (
-          <View style={styles.paidBadgeContainer}>
-            <View style={styles.paidBadge}>
-              <Text style={styles.paidBadgeText}>£</Text>
+        {/* Bookmark Icon - Top Left */}
+        {onBookmarkPress && (
+          <Pressable
+            onPress={async (e) => {
+              e.stopPropagation();
+              try {
+                if (isBookmarked) {
+                  // Remove from watchlist
+                  await removeFromWatchlist(id, type);
+                  setIsBookmarked(false);
+                } else {
+                  // Add to watchlist
+                  const metadata = {
+                    title: title || name,
+                    posterPath: poster_path,
+                    genreIds: item.genre_ids || [],
+                    voteAverage: item.vote_average,
+                  };
+                  await addToWatchlist(id, type, metadata, 'want_to_watch');
+                  setIsBookmarked(true);
+                }
+                onBookmarkPress(item);
+              } catch (error) {
+                console.error('[ContentCard] Error toggling watchlist:', error);
+              }
+            }}
+            style={styles.bookmarkButton}
+            hitSlop={{ top: 10, right: 10, bottom: 10, left: 10 }}
+          >
+            <View style={[styles.bookmarkIcon, { backgroundColor: colors.overlay.medium }]}>
+              <Ionicons
+                name={isBookmarked ? "bookmark" : "bookmark-outline"}
+                size={18}
+                color={isBookmarked ? colors.accent.primary : colors.text.primary}
+              />
             </View>
-          </View>
+          </Pressable>
         )}
 
         {/* Platform Badges - Top Right */}
@@ -349,23 +392,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  paidBadgeContainer: {
+  bookmarkButton: {
     position: 'absolute',
     top: spacing.sm,
     left: spacing.sm,
+    zIndex: 10,
   },
-  paidBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FFD60A', // Amber/gold color for paid indicator
+  bookmarkIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  paidBadgeText: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#000000', // Black text on amber
   },
   badgesContainer: {
     position: 'absolute',
@@ -423,5 +461,8 @@ export default memo(ContentCard, (prevProps, nextProps) => {
   const sameUserPlatforms =
     prevProps.userPlatforms?.length === nextProps.userPlatforms?.length;
 
-  return sameItem && sameUserPlatforms;
+  // Compare focusKey to allow watchlist status refresh
+  const sameFocusKey = prevProps.focusKey === nextProps.focusKey;
+
+  return sameItem && sameUserPlatforms && sameFocusKey;
 });

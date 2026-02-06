@@ -71,14 +71,14 @@ Then:
 streaming-aggregator/
 ├── src/
 │   ├── api/              # API clients (TMDb, OMDB, WatchMode, Cache)
-│   ├── screens/          # 8 screen components
-│   ├── components/       # 23 reusable UI components
-│   ├── navigation/       # Navigation configuration
-│   ├── storage/          # AsyncStorage helpers
+│   ├── screens/          # 9 screen components
+│   ├── components/       # 29 reusable UI components
+│   ├── navigation/       # Navigation configuration (4 tabs)
+│   ├── storage/          # AsyncStorage helpers (user prefs, watchlist, recommendations)
 │   ├── constants/        # Config, colors, platforms, genres
 │   ├── context/          # React Context (Theme)
 │   ├── theme/            # Design system (dark/light themes)
-│   └── utils/            # Error handling, performance utilities
+│   └── utils/            # Error handling, performance, recommendation engine
 ├── assets/
 │   ├── fonts/            # Satoshi font family
 │   └── platform-logos/   # Streaming service logos
@@ -90,14 +90,25 @@ streaming-aggregator/
 
 ## Features
 
+### Core Features
 - **Onboarding Flow**: Name, region, platform selection, genre preferences
 - **Home Screen**: Popular, Highest Rated, Recently Added + custom genre sections
 - **Browse & Search**: Filter by content type, search across all services
 - **Detail View**: Full content info with ratings, cast, and platform availability
 - **Profile Management**: Edit details, manage platforms, customize genres
+
+### Watchlist & Recommendations
+- **Personal Watchlist**: Track content with "Want to Watch" and "Watched" statuses
+- **Rating System**: Thumbs up/down/neutral ratings for watched content
+- **Personalized Recommendations**: "For You" section based on genre preferences and ratings
+- **Smart Algorithm**: 70% genre affinity + 30% similar content scoring
+- **Diversity Filter**: Ensures variety in recommendations (max 3 per genre in top 10)
+
+### Technical Features
 - **Theme Support**: Dark/Light mode with system preference detection
-- **Offline Caching**: Intelligent caching with TTL management
+- **Offline Caching**: Intelligent caching with TTL management (6-hour recommendation cache)
 - **Error Handling**: User-friendly error messages with retry capability
+- **Sync-Ready Schema**: Watchlist data structured for future backend migration
 
 ## Design System
 
@@ -122,9 +133,10 @@ streaming-aggregator/
 - Base unit: 4px
 - Scale: xs (4), sm (8), md (12), lg (16), xl (24), xxl (32), xxxl (48)
 
-### Components (23 total)
+### Components (29 total)
 - **Layout**: GlassContainer, GlassHeader, BottomSheet
 - **Content**: ContentCard, ServiceCard, PlatformChip, PlatformBadge, ProfileAvatar
+- **Watchlist**: WatchlistButton, WatchlistCard, WatchlistStatusBadge, RatingControl, RecommendationCard
 - **Filters**: SearchBar, FilterChip, FilterModal, FilterSwitch, RatingSlider
 - **Display**: RatingBadge, ProgressIndicator, ProgressiveImage, SkeletonLoader, Toast
 - **Feedback**: ErrorBoundary, ErrorMessage, EmptyState, EditableField
@@ -142,7 +154,9 @@ Design tokens and component specifications for Figma/Pencil are available in:
 - `CACHING_GUIDE.md` - Caching strategy documentation
 - `ERROR_HANDLING.md` - Error handling patterns
 - `STORAGE_GUIDE.md` - Data persistence guide
+- `NAVIGATION_SETUP.md` - Navigation structure and tabs
 - `PERFORMANCE_OPTIMIZATION.md` - Performance best practices
+- `WATCHLIST_RECOMMENDATIONS_SPEC.md` - Watchlist & recommendations feature specification
 
 ## License
 

@@ -18,6 +18,7 @@ import FilterChip from '../components/FilterChip';
 import SearchBar from '../components/SearchBar';
 import ErrorMessage from '../components/ErrorMessage';
 import { logError } from '../utils/errorHandler';
+import { addToWatchlist } from '../storage/watchlist';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -42,6 +43,8 @@ const BrowseScreen = ({ navigation }) => {
   const [hasMorePages, setHasMorePages] = useState(true);
   const [debounceTimer, setDebounceTimer] = useState(null);
   const [error, setError] = useState(null);
+  // Focus key to trigger watchlist status refresh in child cards
+  const [focusKey, setFocusKey] = useState(0);
 
   useEffect(() => {
     loadPlatformsAndContent();
@@ -56,9 +59,12 @@ const BrowseScreen = ({ navigation }) => {
     };
   }, [debounceTimer]);
 
-  // Reload platforms when screen gains focus (handles profile changes)
+  // Reload platforms and refresh watchlist state when screen gains focus
   useFocusEffect(
     useCallback(() => {
+      // Increment focusKey to trigger watchlist status refresh in child cards
+      setFocusKey(prev => prev + 1);
+
       const reloadPlatforms = async () => {
         try {
           const platformIds = await getSelectedPlatforms();
@@ -324,6 +330,21 @@ const BrowseScreen = ({ navigation }) => {
     });
   };
 
+  // Handle bookmark press on content cards
+  const handleBookmarkPress = async (item) => {
+    try {
+      const metadata = {
+        title: item.title || item.name,
+        posterPath: item.poster_path,
+        genreIds: item.genre_ids || [],
+        voteAverage: item.vote_average,
+      };
+      await addToWatchlist(item.id, item.media_type || item.type || 'movie', metadata, 'want_to_watch');
+    } catch (error) {
+      console.error('[BrowseScreen] Error adding to watchlist:', error);
+    }
+  };
+
   // Handle load more (pagination)
   const handleLoadMore = () => {
     if (!isLoadingMore && hasMorePages && content.length > 0) {
@@ -363,7 +384,9 @@ const BrowseScreen = ({ navigation }) => {
         <ContentCard
           item={item}
           onPress={handleCardPress}
+          onBookmarkPress={handleBookmarkPress}
           userPlatforms={platforms}
+          focusKey={focusKey}
         />
       </View>
     );

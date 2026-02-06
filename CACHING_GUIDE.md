@@ -10,8 +10,10 @@ The app implements a comprehensive caching layer using AsyncStorage to minimize 
 
 - **TMDb**: 24 hours (86,400,000 ms)
 - **OMDB**: 7 days (604,800,000 ms)
+- **Recommendations**: 6 hours (21,600,000 ms)
+- **Dismissed Recommendations**: 30 days (2,592,000,000 ms)
 
-Ratings change infrequently, so OMDB responses are cached longer.
+Ratings change infrequently, so OMDB responses are cached longer. Recommendations are refreshed every 6 hours or when the watchlist changes significantly.
 
 ### Cache Key Format
 
@@ -243,6 +245,49 @@ const result2 = await getRatings('tt0137523');
 
 **Cached endpoint:**
 - ✅ `getRatings(imdbId, type)`
+
+### Recommendations Caching
+
+The recommendation engine uses a separate caching system to store personalized recommendations:
+
+```javascript
+import { generateRecommendations } from './src/utils/recommendationEngine';
+
+// First call (or cache expired/invalid)
+const recs1 = await generateRecommendations([], 'GB');
+// [RecommendationEngine] Generating fresh recommendations
+// [Cache] Set recommendations (6-hour TTL)
+
+// Second call (within 6 hours, watchlist unchanged)
+const recs2 = await generateRecommendations([], 'GB');
+// [RecommendationEngine] Using cached recommendations
+// No API requests made!
+```
+
+**Cache invalidation triggers:**
+- 6-hour TTL expiration
+- Significant watchlist changes (new ratings, status changes)
+- Manual refresh via `refreshRecommendations()`
+
+**Related functions:**
+```javascript
+import {
+  getCachedRecommendations,
+  setCachedRecommendations,
+  isRecommendationCacheValid,
+  clearRecommendationCache,
+  invalidateRecommendationCache,
+} from './src/storage/recommendations';
+
+// Check if cache is still valid
+const isValid = await isRecommendationCacheValid();
+
+// Force refresh on next generateRecommendations() call
+await invalidateRecommendationCache();
+
+// Clear recommendation cache completely
+await clearRecommendationCache();
+```
 
 ---
 
@@ -535,10 +580,13 @@ Caching significantly reduces API calls:
 ✅ **Automatic caching** for all TMDb and OMDB responses
 ✅ **24-hour TTL** for TMDb (content updates daily)
 ✅ **7-day TTL** for OMDB (ratings change infrequently)
+✅ **6-hour TTL** for recommendations (refreshes periodically)
+✅ **30-day TTL** for dismissed recommendations
 ✅ **MD5 hashing** for consistent cache keys
 ✅ **Cache statistics** for monitoring
 ✅ **Expired entry cleanup** to manage storage
 ✅ **Debug logging** in development mode
 ✅ **User controls** for cache management
+✅ **Smart invalidation** for recommendations on watchlist changes
 
 The caching system is production-ready and requires zero configuration! 🚀

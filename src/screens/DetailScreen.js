@@ -21,6 +21,7 @@ import GlassContainer from '../components/GlassContainer';
 import RatingBadge from '../components/RatingBadge';
 import PlatformChip from '../components/PlatformChip';
 import ErrorMessage from '../components/ErrorMessage';
+import WatchlistButton from '../components/WatchlistButton';
 import { logError } from '../utils/errorHandler';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -333,6 +334,27 @@ const DetailScreen = ({ route, navigation }) => {
             <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
           </GlassContainer>
         </Pressable>
+
+        {/* Watchlist Button - Top Right */}
+        <View style={styles.watchlistOverlay}>
+          <WatchlistButton
+            itemId={itemId}
+            itemType={type}
+            metadata={{
+              title: content.title || content.name,
+              posterPath: content.poster_path,
+              backdropPath: content.backdrop_path,
+              overview: content.overview,
+              releaseDate: content.release_date || content.first_air_date,
+              voteAverage: content.vote_average,
+              genreIds: content.genres?.map(g => g.id) || [],
+              runtime: content.runtime,
+              numberOfSeasons: content.number_of_seasons,
+            }}
+            size="small"
+            variant="compact"
+          />
+        </View>
       </View>
 
       {/* Content Info */}
@@ -516,6 +538,12 @@ const styles = StyleSheet.create({
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  watchlistOverlay: {
+    position: 'absolute',
+    top: spacing.xl,
+    right: spacing.lg,
+    zIndex: 11,
   },
   contentSection: {
     paddingHorizontal: spacing.lg,

@@ -431,6 +431,186 @@ export const getContentWatchProviders = async (contentId, mediaType = 'movie', r
   }
 };
 
+// Get similar movies
+export const getSimilarMovies = async (movieId, page = 1) => {
+  try {
+    if (!movieId) {
+      throw new Error('Movie ID is required');
+    }
+
+    const requestParams = { page };
+
+    // Check cache first
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`movie_${movieId}_similar`, requestParams);
+      const cached = await getCachedData(cacheKey);
+      if (cached) {
+        return {
+          success: true,
+          data: cached,
+        };
+      }
+    }
+
+    const response = await tmdbClient.get(`/movie/${movieId}/similar`, {
+      params: requestParams,
+    });
+
+    // Cache the response
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`movie_${movieId}_similar`, requestParams);
+      await setCachedData(cacheKey, response.data);
+    }
+
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error('TMDb Similar Movies Error:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      data: { results: [] },
+    };
+  }
+};
+
+// Get similar TV shows
+export const getSimilarTV = async (tvId, page = 1) => {
+  try {
+    if (!tvId) {
+      throw new Error('TV show ID is required');
+    }
+
+    const requestParams = { page };
+
+    // Check cache first
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`tv_${tvId}_similar`, requestParams);
+      const cached = await getCachedData(cacheKey);
+      if (cached) {
+        return {
+          success: true,
+          data: cached,
+        };
+      }
+    }
+
+    const response = await tmdbClient.get(`/tv/${tvId}/similar`, {
+      params: requestParams,
+    });
+
+    // Cache the response
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`tv_${tvId}_similar`, requestParams);
+      await setCachedData(cacheKey, response.data);
+    }
+
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error('TMDb Similar TV Error:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      data: { results: [] },
+    };
+  }
+};
+
+// Get TMDb movie recommendations
+export const getMovieRecommendations = async (movieId, page = 1) => {
+  try {
+    if (!movieId) {
+      throw new Error('Movie ID is required');
+    }
+
+    const requestParams = { page };
+
+    // Check cache first
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`movie_${movieId}_recommendations`, requestParams);
+      const cached = await getCachedData(cacheKey);
+      if (cached) {
+        return {
+          success: true,
+          data: cached,
+        };
+      }
+    }
+
+    const response = await tmdbClient.get(`/movie/${movieId}/recommendations`, {
+      params: requestParams,
+    });
+
+    // Cache the response
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`movie_${movieId}_recommendations`, requestParams);
+      await setCachedData(cacheKey, response.data);
+    }
+
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error('TMDb Movie Recommendations Error:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      data: { results: [] },
+    };
+  }
+};
+
+// Get TMDb TV recommendations
+export const getTVRecommendations = async (tvId, page = 1) => {
+  try {
+    if (!tvId) {
+      throw new Error('TV show ID is required');
+    }
+
+    const requestParams = { page };
+
+    // Check cache first
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`tv_${tvId}_recommendations`, requestParams);
+      const cached = await getCachedData(cacheKey);
+      if (cached) {
+        return {
+          success: true,
+          data: cached,
+        };
+      }
+    }
+
+    const response = await tmdbClient.get(`/tv/${tvId}/recommendations`, {
+      params: requestParams,
+    });
+
+    // Cache the response
+    if (USE_CACHE) {
+      const cacheKey = createTMDbCacheKey(`tv_${tvId}_recommendations`, requestParams);
+      await setCachedData(cacheKey, response.data);
+    }
+
+    return {
+      success: true,
+      data: response.data,
+    };
+  } catch (error) {
+    console.error('TMDb TV Recommendations Error:', error.message);
+    return {
+      success: false,
+      error: error.message,
+      data: { results: [] },
+    };
+  }
+};
+
 // Build image URL helper
 export const buildImageUrl = (path, size = 'w500') => {
   if (!path) return null;
@@ -462,6 +642,10 @@ export default {
   searchMulti,
   getWatchProviders,
   getContentWatchProviders,
+  getSimilarMovies,
+  getSimilarTV,
+  getMovieRecommendations,
+  getTVRecommendations,
   buildImageUrl,
   buildPosterUrl,
   buildBackdropUrl,
