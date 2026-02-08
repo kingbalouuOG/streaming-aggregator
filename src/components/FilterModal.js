@@ -23,7 +23,7 @@ import RatingSlider from './RatingSlider';
 
 // Content type options
 const CONTENT_TYPES = [
-  { key: 'all', label: 'All' },
+  { key: 'All', label: 'All' },
   { key: 'movies', label: 'Movies' },
   { key: 'tv', label: 'TV' },
   { key: 'documentaries', label: 'Docs' },
@@ -31,7 +31,7 @@ const CONTENT_TYPES = [
 
 // Cost filter options
 const COST_OPTIONS = [
-  { key: 'all', label: 'All' },
+  { key: 'All', label: 'All' },
   { key: 'free', label: 'Free' },
   { key: 'paid', label: 'Paid' },
 ];
@@ -87,9 +87,9 @@ const FilterModal = ({
   const toggleService = (platformId) => {
     setDraftFilters((prev) => ({
       ...prev,
-      selectedServices: prev.selectedServices.includes(platformId)
-        ? prev.selectedServices.filter((id) => id !== platformId)
-        : [...prev.selectedServices, platformId],
+      services: (prev.services || []).includes(platformId)
+        ? prev.services.filter((id) => id !== platformId)
+        : [...(prev.services || []), platformId],
     }));
   };
 
@@ -97,16 +97,16 @@ const FilterModal = ({
     setDraftFilters((prev) => ({ ...prev, contentType: type }));
   };
 
-  const setCostFilter = (cost) => {
-    setDraftFilters((prev) => ({ ...prev, costFilter: cost }));
+  const setCostFilter = (costValue) => {
+    setDraftFilters((prev) => ({ ...prev, cost: costValue }));
   };
 
   const toggleGenre = (genreId) => {
     setDraftFilters((prev) => ({
       ...prev,
-      selectedGenres: prev.selectedGenres.includes(genreId)
-        ? prev.selectedGenres.filter((id) => id !== genreId)
-        : [...prev.selectedGenres, genreId],
+      genres: (prev.genres || []).includes(genreId)
+        ? prev.genres.filter((id) => id !== genreId)
+        : [...(prev.genres || []), genreId],
     }));
   };
 
@@ -121,10 +121,10 @@ const FilterModal = ({
 
   const handleClear = () => {
     const clearedFilters = {
-      selectedServices: [],
-      contentType: 'all',
-      costFilter: 'all',
-      selectedGenres: [],
+      services: [],
+      contentType: 'All',
+      cost: 'All',
+      genres: [],
       minRating: 0,
     };
     setDraftFilters(clearedFilters);
@@ -167,7 +167,7 @@ const FilterModal = ({
                       platformId={platform.id}
                       name={platform.name}
                       color={platform.color}
-                      selected={draftFilters.selectedServices.includes(platform.id)}
+                      selected={(draftFilters.services || []).includes(platform.id)}
                       onPress={() => toggleService(platform.id)}
                     />
                   ))}
@@ -199,7 +199,7 @@ const FilterModal = ({
               </Text>
               <FilterSwitch
                 options={COST_OPTIONS}
-                selectedKey={draftFilters.costFilter}
+                selectedKey={draftFilters.cost || 'All'}
                 onSelect={setCostFilter}
               />
             </View>
@@ -215,14 +215,14 @@ const FilterModal = ({
                     key={genre.id}
                     style={[
                       styles.genreChip,
-                      draftFilters.selectedGenres.includes(genre.id) && styles.genreChipSelected,
+                      (draftFilters.genres || []).includes(genre.id) && styles.genreChipSelected,
                     ]}
                     onPress={() => toggleGenre(genre.id)}
                   >
                     <Text
                       style={[
                         styles.genreChipText,
-                        draftFilters.selectedGenres.includes(genre.id) && styles.genreChipTextSelected,
+                        (draftFilters.genres || []).includes(genre.id) && styles.genreChipTextSelected,
                       ]}
                     >
                       {genre.name}

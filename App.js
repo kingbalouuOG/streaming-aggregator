@@ -30,12 +30,12 @@ export default function App() {
   }
 
   return (
-    <ErrorBoundary>
-      <ThemeProvider>
+    <ThemeProvider>
+      <ErrorBoundary>
         <SafeAreaProvider>
           <AppContent onLayout={onLayoutRootView} />
         </SafeAreaProvider>
-      </ThemeProvider>
-    </ErrorBoundary>
+      </ErrorBoundary>
+    </ThemeProvider>
   );
 }

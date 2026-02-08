@@ -127,7 +127,7 @@ const HomeStack = () => {
         <Stack.Screen
           name="Detail"
           component={DetailScreen}
-          options={{ title: 'Details' }}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </Suspense>
@@ -150,7 +150,7 @@ const BrowseStack = () => {
         <Stack.Screen
           name="Detail"
           component={DetailScreen}
-          options={{ title: 'Details' }}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </Suspense>
@@ -168,7 +168,7 @@ const ProfileStack = () => {
         <Stack.Screen
           name="ProfileMain"
           component={ProfileScreen}
-          options={{ title: 'Profile' }}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </Suspense>
@@ -191,7 +191,7 @@ const WatchlistStack = () => {
         <Stack.Screen
           name="Detail"
           component={DetailScreen}
-          options={{ title: 'Details' }}
+          options={{ headerShown: false }}
         />
       </Stack.Navigator>
     </Suspense>
